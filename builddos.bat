@@ -1,5 +1,5 @@
 @echo off
-rem Copyright (C) 1998-2018 Free Software Foundation, Inc.
+rem Copyright (C) 1998-2022 Free Software Foundation, Inc.
 rem This file is part of GNU Make.
 rem
 rem GNU Make is free software; you can redistribute it and/or modify it under
@@ -68,12 +68,13 @@ gcc -c -I./src -I%XSRC%/src -I./lib -I%XSRC%/lib -DHAVE_CONFIG_H -O2 -g %XSRC%/s
 gcc -c -I./src -I%XSRC%/src -I./lib -I%XSRC%/lib -DHAVE_CONFIG_H -O2 -g %XSRC%/src/remote-stub.c -o remote-stub.o
 gcc -c -I./src -I%XSRC%/src -I./lib -I%XSRC%/lib -DHAVE_CONFIG_H -O2 -g %XSRC%/src/getopt.c -o getopt.o
 gcc -c -I./src -I%XSRC%/src -I./lib -I%XSRC%/lib -DHAVE_CONFIG_H -O2 -g %XSRC%/src/getopt1.c -o getopt1.o
+gcc -c -I./src -I%XSRC%/src -I./lib -I%XSRC%/lib -DHAVE_CONFIG_H -O2 -g %XSRC%/src/shuffle.c -o shuffle.o
 gcc -c -I./src -I%XSRC%/src -I./lib -I%XSRC%/lib -DHAVE_CONFIG_H -O2 -g %XSRC%/lib/glob.c -o lib/glob.o
 gcc -c -I./src -I%XSRC%/src -I./lib -I%XSRC%/lib -DHAVE_CONFIG_H -O2 -g %XSRC%/lib/fnmatch.c -o lib/fnmatch.o
 @echo off
 echo commands.o > respf.$$$
 for %%f in (job output dir file misc main read remake rule implicit default variable) do echo %%f.o >> respf.$$$
-for %%f in (expand function vpath hash strcache version ar arscan signame remote-stub getopt getopt1) do echo %%f.o >> respf.$$$
+for %%f in (expand function vpath hash strcache version ar arscan signame remote-stub getopt getopt1 shuffle) do echo %%f.o >> respf.$$$
 for %%f in (lib\glob lib\fnmatch) do echo %%f.o >> respf.$$$
 rem gcc  -c -I./src -I%XSRC% -I./lib -I%XSRC%/lib -DHAVE_CONFIG_H -O2 -g %XSRC%/guile.c -o guile.o
 rem echo guile.o >> respf.$$$

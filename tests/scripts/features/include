@@ -64,6 +64,22 @@ error: foo.mk ; @echo $@
    512
   );
 
+# The same as above with an additional include directory.
+
+mkdir('hellod', 0777);
+
+run_make_test
+  ('
+-include foo.mk
+error: foo.mk ; @echo $@
+',
+   '-Ihellod',
+   "#MAKE#: *** No rule to make target 'foo.mk', needed by 'error'.  Stop.\n",
+   512
+  );
+
+rmdir('hellod');
+
 # Make sure that target-specific variables don't impact things.  This could
 # happen because a file record is created when a target-specific variable is
 # set.
@@ -157,12 +173,50 @@ include inc1
 include inc2
 inc2:; echo > $@
 !,
-              '', "echo > inc2\necho > inc1\nDONE\n");
+              '', "echo > inc1\necho > inc2\nDONE\n");
 
 rmfiles('inc1', 'inc2');
 
+# Test include of make-able file doesn't show an error.
+# Specify an additional include directory.
+
+mkdir('hellod', 0777);
+
+run_make_test(q!
+.PHONY: default
+default:; @echo DONE
+
+inc1:; echo > $@
+include inc1
+include inc2
+inc2:; echo > $@
+!,
+              '-Ihellod', "echo > inc1\necho > inc2\nDONE\n");
+
+rmfiles('inc1', 'inc2');
+
+# Test include of make-able file doesn't show an error.
+# inc1 and inc2 are present in the specified include directory.
+touch('hellod/inc1');
+touch('hellod/inc2');
+
+run_make_test(q!
+.PHONY: default
+default:; @echo DONE
+
+inc1:; echo > $@
+include inc1
+include inc2
+inc2:; echo > $@
+!,
+              '-Ihellod', "DONE\n");
+
+rmfiles('inc1', 'inc2', 'hellod/inc1', 'hellod/inc2');
+
+rmdir('hellod');
+
 # No target gets correct error
-run_make_test('', '', '#MAKE#: *** No targets.  Stop.', 512);
+run_make_test("\n", '', '#MAKE#: *** No targets.  Stop.', 512);
 
 # No target in included file either, still gets correct error.
 touch('inc1.mk');
@@ -209,7 +263,7 @@ inc1:; echo > $@
 include inc1
 include inc2
 !,
-                  '', "#MAKEFILE#:7: inc2: $ERR_no_such_file\n#MAKE#: *** No rule to make target 'inc2'.  Stop.\n", 512);
+                  '', "echo > inc1\n#MAKEFILE#:7: inc2: $ERR_no_such_file\n#MAKE#: *** No rule to make target 'inc2'.  Stop.\n", 512);
 
     rmfiles('inc1');
 
@@ -221,7 +275,7 @@ include inc1
 inc1: foo; echo > $@
 foo:; exit 1
 !,
-                  '', "exit 1\n#MAKEFILE#:3: inc1: $ERR_no_such_file\n#MAKE#: *** [#MAKEFILE#;5: foo] Error 1\n", 512);
+                  '', "exit 1\n#MAKEFILE#:3: inc1: $ERR_no_such_file\n#MAKE#: *** [#MAKEFILE#:5: foo] Error 1\n", 512);
 
     rmfiles('inc1');
 
@@ -235,10 +289,34 @@ inc1: foo; echo > $@
                   '', "#MAKEFILE#:3: inc1: $ERR_no_such_file\n#MAKE#: *** No rule to make target 'foo', needed by 'inc1'.  Stop.\n", 512);
 
     rmfiles('inc1');
+
+    # Check that included double-colon targets with no prerequisites aren't
+    # built.  This should fail as hello.mk doesn't exist
+
+    run_make_test(q!
+.PHONY: default
+default:;@echo 'FOO=$(FOO)'
+include hello.mk
+hello.mk:: ; echo 'FOO=bar' > $@
+!,
+                  '', "#MAKEFILE#:4: hello.mk: $ERR_no_such_file", 512);
+
+    # Check that included phony targets aren't built.
+    # This should fail as hello.mk doesn't exist
+
+    run_make_test(q!
+.PHONY: default
+default:;@echo 'FOO=$(FOO)'
+include hello.mk
+hello.mk: ; echo 'FOO=bar' > $@
+.PHONY: hello.mk
+!,
+                  '', "#MAKEFILE#:4: hello.mk: $ERR_no_such_file", 512);
 }
 
-# Including files that can't be read should show an error
 if (defined $ERR_unreadable_file) {
+    # Including files that can't be read should show an error
+    unlink('inc1');
     create_file('inc1', 'FOO := foo');
     chmod 0000, 'inc1';
 
@@ -248,7 +326,18 @@ all:;@echo $(FOO)
 !,
                   '', "#MAKEFILE#:2: inc1: $ERR_unreadable_file\n#MAKE#: *** No rule to make target 'inc1'.  Stop.", 512);
 
-# Unreadable files that we know how to successfully recreate should work
+    # Including files that can't be read should show an error, even when there
+    # is a readable file in a subsequent include directory.
+    mkdir('hellod', 0777);
+    touch("hellod/inc1");
+
+    run_make_test(q!
+include inc1
+all:;@echo $(FOO)
+!,
+                  '-Ihellod', "#MAKEFILE#:2: inc1: $ERR_unreadable_file\n#MAKE#: *** No rule to make target 'inc1'.  Stop.", 512);
+
+    # Unreadable files that we know how to successfully recreate should work
 
     run_make_test(sprintf(q!
 all:;@echo $(FOO)
@@ -257,7 +346,115 @@ inc1:; @%s $@ && echo FOO := bar > $@
 !, $CMD_rmfile),
                   '', "bar");
 
-    rmfiles('inc1');
+    # Unreadable files that we know how to successfully recreate should work.
+    # Even when there is a readable file in an additional include directory.
+
+    unlink('inc1');
+    create_file('inc1', 'FOO := foo');
+    chmod 0000, 'inc1';
+
+    run_make_test(sprintf(q!
+all:;@echo $(FOO)
+include inc1
+inc1:; @%s $@ && echo FOO := bar > $@
+!, $CMD_rmfile),
+                  '-Ihellod', "bar");
+
+    rmfiles('inc1', 'hellod/inc1');
+    rmdir('hellod');
 }
+
+# Check that the order of remaking include files is correct: should remake
+# them in the same order they were encountered in the makefile.  SV 58735
+
+run_make_test(q!
+-include i1 i2
+-include i3
+-include i4
+%:;@echo $@
+all:;
+!,
+              '', "i1\ni2\ni3\ni4\n#MAKE#: 'all' is up to date.\n");
+
+# Check that included files work if created after the first include failed
+# https://savannah.gnu.org/bugs/?57676
+
+run_make_test(q!
+default:; @echo $(hello)
+-include hello.mk
+$(shell echo hello=world >hello.mk)
+include hello.mk
+!,
+              '', "world\n");
+
+unlink('hello.mk');
+
+# Check that included double-colon targets with no prerequisites aren't built.
+# This should succeed since hello.mk already exists
+
+touch('hello.mk');
+
+run_make_test(q!
+.PHONY: default
+default:;@echo 'FOO=$(FOO)'
+include hello.mk
+hello.mk:: ; echo 'FOO=bar' > $@
+!,
+              '', 'FOO=');
+
+unlink('hello.mk');
+
+# Check that included double-colon targets with no prerequisites aren't built.
+# This should succeed due to -include
+
+run_make_test(q!
+.PHONY: default
+default:;@echo 'FOO=$(FOO)'
+-include hello.mk
+hello.mk:: ; echo 'FOO=bar' > $@
+!,
+              '', 'FOO=');
+
+# Check that phony targets aren't built.
+# This should succeed since hello.mk already exists
+
+touch('hello.mk');
+
+run_make_test(q!
+.PHONY: default
+default:;@echo 'FOO=$(FOO)'
+include hello.mk
+hello.mk: ; echo 'FOO=bar' > $@
+.PHONY: hello.mk
+!,
+              '', 'FOO=');
+
+unlink('hello.mk');
+
+# Check that included double-colon targets with no prerequisites aren't built.
+# This should succeed due to -include
+
+run_make_test(q!
+.PHONY: default
+default:;@echo 'FOO=$(FOO)'
+-include hello.mk
+hello.mk: ; echo 'FOO=bar' > $@
+.PHONY: hello.mk
+!,
+              '', 'FOO=');
+
+# Check the default makefiles... this requires us to invoke make with no
+# arguments.  Also check MAKEFILES
+
+if ($port_type eq 'W32') {
+    $defaults = "GNUmakefile\nmakefile\nMakefile\nmakefile.mak";
+} else {
+    $defaults = "GNUmakefile\nmakefile\nMakefile";
+}
+
+$ENV{MAKEFILES} = 'foobar barfoo';
+run_make_with_options(undef, ['-E', '%:;@echo $@', '-E', 'all:;', '-E', '-include bizbaz', '-E', '-include bazbiz'], get_logfile(0));
+$answer = "bizbaz\nbazbiz\nfoobar\nbarfoo\n$defaults\n#MAKE#: 'all' is up to date.\n";
+&compare_output(subst_make_string($answer), &get_logfile(1));
 
 1;

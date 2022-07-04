@@ -1,5 +1,5 @@
 /* Definition of data structures describing shell commands for GNU Make.
-Copyright (C) 1988-2018 Free Software Foundation, Inc.
+Copyright (C) 1988-2022 Free Software Foundation, Inc.
 This file is part of GNU Make.
 
 GNU Make is free software; you can redistribute it and/or modify it under the
@@ -34,9 +34,12 @@ struct commands
 #define COMMANDS_SILENT         2 /* Silent: @.  */
 #define COMMANDS_NOERROR        4 /* No errors: -.  */
 
+struct file;
+struct child;
+
 RETSIGTYPE fatal_error_signal (int sig);
 void execute_file_commands (struct file *file);
 void print_commands (const struct commands *cmds);
 void delete_child_targets (struct child *child);
 void chop_commands (struct commands *cmds);
-void set_file_variables (struct file *file);
+void set_file_variables (struct file *file, const char *stem);

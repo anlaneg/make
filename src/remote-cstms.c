@@ -3,7 +3,7 @@
    Please do not send bug reports or questions about it to
    the Make maintainers.
 
-Copyright (C) 1988-2018 Free Software Foundation, Inc.
+Copyright (C) 1988-2022 Free Software Foundation, Inc.
 This file is part of GNU Make.
 
 GNU Make is free software; you can redistribute it and/or modify it under the
@@ -19,9 +19,10 @@ You should have received a copy of the GNU General Public License along with
 this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 #include "makeint.h"
+
 #include "filedef.h"
-#include "commands.h"
 #include "job.h"
+#include "commands.h"
 #include "debug.h"
 
 #include <sys/time.h>
@@ -232,7 +233,8 @@ start_remote_job (char **argv, char **envp, int stdin_fd,
   else if (pid == 0)
     {
       /* Child side.  Run 'export' to handle the connection.  */
-      static char sock_buf[20], retsock_buf[20], id_buf[20];
+      static char sock_buf[INTSTR_LENGTH], retsock_buf[INTSTR_LENGTH];
+      static char id_buf[INTSTR_LENGTH];
       static char *new_argv[6] =
         { EXPORT_COMMAND, "-id", sock_buf, retsock_buf, id_buf, 0 };
 

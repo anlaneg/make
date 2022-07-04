@@ -16,6 +16,7 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 #include "makeint.h"
 #include "hash.h"
+#include <assert.h>
 
 #define CALLOC(t, n) ((t *) xcalloc (sizeof (t) * (n)))
 #define MALLOC(t, n) ((t *) xmalloc (sizeof (t) * (n)))
@@ -43,11 +44,11 @@ hash_init (struct hash_table *ht, unsigned long size,
 {
   ht->ht_size = round_up_2 (size);
   ht->ht_empty_slots = ht->ht_size;
-  ht->ht_vec = (void**) CALLOC (struct token *, ht->ht_size);
+  ht->ht_vec = CALLOC (void *, ht->ht_size);
   if (ht->ht_vec == 0)
     {
       fprintf (stderr, _("can't allocate %lu bytes for hash table: memory exhausted"),
-	       ht->ht_size * (unsigned long) sizeof (struct token *));
+               ht->ht_size * (unsigned long) sizeof (void *));
       exit (MAKE_TROUBLE);
     }
 
@@ -95,22 +96,22 @@ hash_find_slot (struct hash_table *ht, const void *key)
       slot = &ht->ht_vec[hash_1];
 
       if (*slot == 0)
-	return (deleted_slot ? deleted_slot : slot);
+        return (deleted_slot ? deleted_slot : slot);
       if (*slot == hash_deleted_item)
-	{
-	  if (deleted_slot == 0)
-	    deleted_slot = slot;
-	}
+        {
+          if (deleted_slot == 0)
+            deleted_slot = slot;
+        }
       else
-	{
-	  if (key == *slot)
-	    return slot;
-	  if ((*ht->ht_compare) (key, *slot) == 0)
-	    return slot;
-	  ht->ht_collisions++;
-	}
+        {
+          if (key == *slot)
+            return slot;
+          if ((*ht->ht_compare) (key, *slot) == 0)
+            return slot;
+          ht->ht_collisions++;
+        }
       if (!hash_2)
-	  hash_2 = (*ht->ht_hash_2) (key) | 1;
+          hash_2 = (*ht->ht_hash_2) (key) | 1;
       hash_1 += hash_2;
     }
 }
@@ -139,7 +140,7 @@ hash_insert_at (struct hash_table *ht, const void *item, const void *slot)
     {
       ht->ht_fill++;
       if (old_item == 0)
-	ht->ht_empty_slots--;
+        ht->ht_empty_slots--;
       old_item = item;
     }
   *(void const **) slot = item;
@@ -182,7 +183,7 @@ hash_free_items (struct hash_table *ht)
     {
       void *item = *vec;
       if (!HASH_VACANT (item))
-	free (item);
+        free (item);
       *vec = 0;
     }
   ht->ht_fill = 0;
@@ -227,7 +228,7 @@ hash_map (struct hash_table *ht, hash_map_func_t map)
   for (slot = ht->ht_vec; slot < end; slot++)
     {
       if (!HASH_VACANT (*slot))
-	(*map) (*slot);
+        (*map) (*slot);
     }
 }
 
@@ -240,7 +241,7 @@ hash_map_arg (struct hash_table *ht, hash_map_arg_func_t map, void *arg)
   for (slot = ht->ht_vec; slot < end; slot++)
     {
       if (!HASH_VACANT (*slot))
-	(*map) (*slot, arg);
+        (*map) (*slot, arg);
     }
 }
 
@@ -259,15 +260,15 @@ hash_rehash (struct hash_table *ht)
       ht->ht_capacity = ht->ht_size - (ht->ht_size >> 4);
     }
   ht->ht_rehashes++;
-  ht->ht_vec = (void **) CALLOC (struct token *, ht->ht_size);
+  ht->ht_vec = CALLOC (void *, ht->ht_size);
 
   for (ovp = old_vec; ovp < &old_vec[old_ht_size]; ovp++)
     {
       if (! HASH_VACANT (*ovp))
-	{
-	  void **slot = hash_find_slot (ht, *ovp);
-	  *slot = *ovp;
-	}
+        {
+          void **slot = hash_find_slot (ht, *ovp);
+          *slot = *ovp;
+        }
     }
   ht->ht_empty_slots = ht->ht_size - ht->ht_fill;
   free (old_vec);
@@ -277,12 +278,12 @@ void
 hash_print_stats (struct hash_table *ht, FILE *out_FILE)
 {
   fprintf (out_FILE, _("Load=%lu/%lu=%.0f%%, "), ht->ht_fill, ht->ht_size,
-	   100.0 * (double) ht->ht_fill / (double) ht->ht_size);
+           100.0 * (double) ht->ht_fill / (double) ht->ht_size);
   fprintf (out_FILE, _("Rehash=%u, "), ht->ht_rehashes);
   fprintf (out_FILE, _("Collisions=%lu/%lu=%.0f%%"), ht->ht_collisions, ht->ht_lookups,
-	   (ht->ht_lookups
-	    ? (100.0 * (double) ht->ht_collisions / (double) ht->ht_lookups)
-	    : 0));
+           (ht->ht_lookups
+            ? (100.0 * (double) ht->ht_collisions / (double) ht->ht_lookups)
+            : 0));
 }
 
 /* Dump all items into a NULL-terminated vector.  Use the
@@ -329,7 +330,7 @@ round_up_2 (unsigned long n)
 }
 
 #define rol32(v, n) \
-	((v) << (n) | ((v) >> (32 - (n))))
+        ((v) << (n) | ((v) >> (32 - (n))))
 
 /* jhash_mix -- mix 3 32-bit values reversibly. */
 #define jhash_mix(a, b, c)                      \
@@ -364,7 +365,8 @@ round_up_2 (unsigned long n)
     r += val;                                   \
   } while(0);
 
-unsigned jhash(unsigned const char *k, int length)
+unsigned int
+jhash(unsigned const char *k, int length)
 {
   unsigned int a, b, c;
 
@@ -408,12 +410,16 @@ unsigned jhash(unsigned const char *k, int length)
   return c;
 }
 
+#define UINTSZ sizeof (unsigned int)
+
 #ifdef WORDS_BIGENDIAN
 /* The ifs are ordered from the first byte in memory to the last.  */
-#define sum_up_to_nul(r, p, flag)         \
+#define sum_up_to_nul(r, p, plen, flag)   \
   do {                                    \
-    unsigned int val;                     \
-    memcpy(&val, (p), 4);                 \
+    unsigned int val = 0;                 \
+    size_t pn = (plen);                   \
+    size_t n = pn < UINTSZ ? pn : UINTSZ; \
+    memcpy (&val, (p), n);                \
     if ((val & 0xFF000000) == 0)          \
       flag = 1;                           \
     else if ((val & 0xFF0000) == 0)       \
@@ -427,48 +433,60 @@ unsigned jhash(unsigned const char *k, int length)
 /* First detect the presence of zeroes.  If there is none, we can
    sum the 4 bytes directly.  Otherwise, the ifs are ordered as in the
    big endian case, from the first byte in memory to the last.  */
-#define sum_up_to_nul(r, p, flag)                   \
-  do {                                              \
-    unsigned int val;                               \
-    unsigned int zeroes;                            \
-    memcpy(&val, (p), 4);                           \
-    zeroes = ((val - 0x01010101) & ~val);           \
-    if (!(zeroes & 0x80808080))                     \
-      r += val;                                     \
-    else if ((val & 0xFF) == 0)                     \
-      flag = 1;                                     \
-    else if ((val & 0xFF00) == 0)                   \
-      r += val & 0xFF, flag = 1;                    \
-    else if ((val & 0xFF0000) == 0)                 \
-      r += val & 0xFFFF, flag = 1;                  \
-    else                                            \
-      r += val, flag = 1;                           \
+#define sum_up_to_nul(r, p, plen, flag)              \
+  do {                                               \
+    unsigned int val = 0;                            \
+    size_t pn = (plen);                              \
+    size_t n = pn < UINTSZ ? pn : UINTSZ;            \
+    memcpy (&val, (p), n);                           \
+    flag = ((val - 0x01010101) & ~val) & 0x80808080; \
+    if (!flag)                                       \
+      r += val;                                      \
+    else if (val & 0xFF)                             \
+      {                                              \
+        if ((val & 0xFF00) == 0)                     \
+          r += val & 0xFF;                           \
+        else if ((val & 0xFF0000) == 0)              \
+          r += val & 0xFFFF;                         \
+        else                                         \
+          r += val;                                  \
+      }                                              \
   } while (0)
 #endif
 
-unsigned jhash_string(unsigned const char *k)
+unsigned int
+jhash_string(unsigned const char *k)
 {
   unsigned int a, b, c;
   unsigned int have_nul = 0;
   unsigned const char *start = k;
+  size_t klen = strlen ((const char*)k);
 
   /* Set up the internal state */
   a = b = c = JHASH_INITVAL;
 
   /* All but the last block: affect some 32 bits of (a,b,c) */
   for (;;) {
-    sum_up_to_nul(a, k, have_nul);
+    sum_up_to_nul(a, k, klen, have_nul);
     if (have_nul)
       break;
-    k += 4;
-    sum_up_to_nul(b, k, have_nul);
+    k += UINTSZ;
+    assert (klen >= UINTSZ);
+    klen -= UINTSZ;
+
+    sum_up_to_nul(b, k, klen, have_nul);
     if (have_nul)
       break;
-    k += 4;
-    sum_up_to_nul(c, k, have_nul);
+    k += UINTSZ;
+    assert (klen >= UINTSZ);
+    klen -= UINTSZ;
+
+    sum_up_to_nul(c, k, klen, have_nul);
     if (have_nul)
       break;
-    k += 4;
+    k += UINTSZ;
+    assert (klen >= UINTSZ);
+    klen -= UINTSZ;
     jhash_mix(a, b, c);
   }
 

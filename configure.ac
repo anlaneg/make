@@ -1,6 +1,6 @@
 # Process this file with autoconf to produce a configure script.
 #
-# Copyright (C) 1993-2018 Free Software Foundation, Inc.
+# Copyright (C) 1993-2022 Free Software Foundation, Inc.
 # This file is part of GNU Make.
 #
 # GNU Make is free software; you can redistribute it and/or modify it under
@@ -16,7 +16,7 @@
 # You should have received a copy of the GNU General Public License along with
 # this program.  If not, see <http://www.gnu.org/licenses/>.
 
-AC_INIT([GNU make],[4.2.90],[bug-make@gnu.org])
+AC_INIT([GNU make],[4.3.90],[bug-make@gnu.org])
 
 AC_PREREQ([2.69])
 
@@ -37,6 +37,9 @@ AM_INIT_AUTOMAKE([1.16.1 foreign -Werror -Wall])
 # Checks for programs.
 AC_USE_SYSTEM_EXTENSIONS
 AC_PROG_CC
+
+# GNU Gnulib requires C99, so I guess we might as well too...
+AC_PROG_CC_C99
 
 # Configure gnulib
 gl_EARLY
@@ -127,8 +130,8 @@ AC_CACHE_CHECK([for standard gettimeofday], [ac_cv_func_gettimeofday],
                   int main ()
                   {
                     struct timeval t; t.tv_sec = -1; t.tv_usec = -1;
-                    exit (gettimeofday (&t, 0) != 0
-                          || t.tv_sec < 0 || t.tv_usec < 0);
+                    return gettimeofday (&t, 0) != 0
+                          || t.tv_sec < 0 || t.tv_usec < 0;
                   }]])],
                   [ac_cv_func_gettimeofday=yes],
                   [ac_cv_func_gettimeofday=no],
@@ -138,10 +141,10 @@ AS_IF([test "$ac_cv_func_gettimeofday" = yes],
             [Define to 1 if you have a standard gettimeofday function])
 ])
 
-AC_CHECK_FUNCS([strdup strndup umask mkstemp mktemp fdopen \
+AC_CHECK_FUNCS([strdup strndup memrchr umask mkstemp mktemp fdopen \
                 dup dup2 getcwd realpath sigsetmask sigaction \
                 getgroups seteuid setegid setlinebuf setreuid setregid \
-                getrlimit setrlimit setvbuf pipe strerror strsignal \
+                getrlimit setrlimit setvbuf pipe strsignal \
                 lstat readlink atexit isatty ttyname pselect posix_spawn \
                 posix_spawnattr_setsigmask])
 
@@ -164,6 +167,9 @@ AC_CHECK_FUNCS([strcasecmp strncasecmp strcmpi strncmpi stricmp strnicmp])
 AC_FUNC_STRCOLL
 AC_FUNC_CLOSEDIR_VOID
 
+# dir.c and our glob.c use dirent.d_type if available
+AC_STRUCT_DIRENT_D_TYPE
+
 # See if the user wants to add (or not) GNU Guile support
 AC_ARG_WITH([guile], [AS_HELP_STRING([--with-guile],
             [Support GNU Guile for embedded scripting])])
@@ -173,7 +179,7 @@ AC_ARG_WITH([guile], [AS_HELP_STRING([--with-guile],
 PKG_PROG_PKG_CONFIG
 
 AS_IF([test "x$with_guile" != xno],
-[ guile_versions="2.2 2.0 1.8"
+[ guile_versions="3.0 2.2 2.0 1.8"
   guile_version=no
   have_guile=no
   AC_MSG_CHECKING([for GNU Guile])
@@ -181,13 +187,21 @@ AS_IF([test "x$with_guile" != xno],
     PKG_CHECK_EXISTS([guile-$v], [guile_version=$v; have_guile=yes; break], [])
   done
   AC_MSG_RESULT([$guile_version])
-  if test "$have_guile" = yes; then
-    PKG_CHECK_MODULES(GUILE, [guile-$guile_version])
-    AC_DEFINE([HAVE_GUILE], [1], [Embed GNU Guile support])
-  fi
+  AS_IF([test "$have_guile" = yes],
+  [ PKG_CHECK_MODULES(GUILE, [guile-$guile_version])
+    # Unfortunately Guile requires a C99 compiler but GNU make doesn't, so
+    # verify we can actually compile the header.
+    keep_CPPFLAGS="$CPPFLAGS"
+    CPPFLAGS="$CPPFLAGS $pkg_cv_GUILE_CFLAGS"
+    AC_CHECK_HEADER([libguile.h],
+                    [AC_DEFINE([HAVE_GUILE], [1], [Embed GNU Guile support])],
+                    [have_guile=no],
+                    [/* Avoid configuration error warnings. */])
+    CPPFLAGS="$keep_CPPFLAGS"
+  ])
 ])
 
-AM_CONDITIONAL([HAVE_GUILE], [test "$have_guile" = yes])
+AM_CONDITIONAL([HAVE_GUILE], [test "$have_guile" = "yes"])
 
 AC_CHECK_DECLS([sys_siglist, _sys_siglist, __sys_siglist], , ,
   [AC_INCLUDES_DEFAULT
@@ -368,7 +382,28 @@ AC_ARG_ENABLE([posix-spawn],
 AS_CASE([/$ac_cv_header_spawn/$ac_cv_func_posix_spawn/],
   [*/no/*], [make_cv_posix_spawn=no])
 
-AS_CASE([/$make_cv_posix_spawn/$user_posix_spawn/],
+AS_IF([test "$make_cv_posix_spawn" = yes],
+  AC_CACHE_CHECK([for posix_spawn that fails synchronously],
+    [make_cv_synchronous_posix_spawn],
+    [make_cv_synchronous_posix_spawn=no
+     AC_RUN_IFELSE([AC_LANG_SOURCE([[
+       #include <spawn.h>
+       #include <string.h>
+
+       extern char **environ;
+
+       int main() {
+         char* path = strdup("./non-existent");
+         char *argv[[2]];
+         argv[[0]] = path;
+         argv[[1]] =  0;
+         return posix_spawn(0, path, 0, 0, argv, environ);
+       }]])],
+       [make_cv_synchronous_posix_spawn=no],
+       [make_cv_synchronous_posix_spawn=yes],
+       [make_cv_synchronous_posix_spawn="no (cross-compiling)"])]))
+
+AS_CASE([/$user_posix_spawn/$make_cv_posix_spawn/$make_cv_synchronous_posix_spawn/],
   [*/no/*], [make_cv_posix_spawn=no],
   [AC_DEFINE(USE_POSIX_SPAWN, 1, [Define to 1 to use posix_spawn().])
   ])
@@ -399,38 +434,6 @@ AS_IF([(/usr/sccs/admin -n s.conftest || admin -n s.conftest) >/dev/null 2>&1 &&
     ])
 ])
 rm -f s.conftest conftoast
-
-# Check the system to see if it provides GNU glob.  If not, use our
-# local version.
-AC_CACHE_CHECK([if system libc has GNU glob], [make_cv_sys_gnu_glob],
-[ AC_EGREP_CPP([gnu glob],[
-#include <features.h>
-#include <glob.h>
-#include <fnmatch.h>
-
-#if !defined _LIBC && defined __GNU_LIBRARY__ && __GNU_LIBRARY__ > 1
-# include <gnu-versions.h>
-# if _GNU_GLOB_INTERFACE_VERSION == 1 || _GNU_GLOB_INTERFACE_VERSION == 2
-   gnu glob
-# endif
-#endif],
-        [make_cv_sys_gnu_glob=yes],
-        [make_cv_sys_gnu_glob=no])])
-
-# Tell automake about this, so it can build the right .c files.
-AM_CONDITIONAL([USE_SYSTEM_GLOB], [test "$make_cv_sys_gnu_glob" = yes])
-
-# Tell build.sh which to use
-USE_SYSTEM_GLOB="$make_cv_sys_gnu_glob"
-AC_SUBST([USE_SYSTEM_GLOB])
-
-# See if we need a replacement for getloadavg()
-gl_GETLOADAVG
-if test $HAVE_GETLOADAVG = 0; then
-  AC_LIBOBJ([getloadavg])
-  gl_PREREQ_GETLOADAVG
-fi
-gl_STDLIB_MODULE_INDICATOR([getloadavg])
 
 # Let the makefile know what our build host is
 
@@ -520,22 +523,23 @@ AS_IF([test "x$make_cv_posix_spawn" = xno && test "x$user_posix_spawn" = xyes],
   echo
 ])
 
+# autoconf initializes $prefix to NONE.
+AM_CONDITIONAL([KNOWN_PREFIX],
+               [test "x$prefix" = xNONE -o "x$prefix" = x/usr/local \
+                     -o "x$prefix" = x/usr/gnu -o "x$prefix" = x/usr])
+
 # Specify what files are to be created.
-AC_CONFIG_FILES([Makefile lib/Makefile po/Makefile.in doc/Makefile \
+AC_CONFIG_FILES([Makefile build.cfg lib/Makefile po/Makefile.in doc/Makefile \
                  tests/config-flags.pm])
 # We don't need this: the standard automake output suffices for POSIX systems.
 #mk/Posix.mk
 
+# Put build.sh in the build directory so it's easy to find
+AC_CONFIG_LINKS([build.sh:build.sh])
+
 # OK, do it!
 
 AC_OUTPUT
-
-# We only generate the build.sh if we have a build.sh.in; we won't have
-# one before we've created a distribution.
-AS_IF([test -f "$srcdir/build.sh.in"],
-[ ./config.status --file build.sh
-  chmod +x build.sh
-])
 
 dnl Local Variables:
 dnl comment-start: "dnl "

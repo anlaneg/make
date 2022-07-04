@@ -5,7 +5,7 @@
 # Written 91-12-02 through 92-01-01 by Stephen McGee.
 # Modified 92-02-11 through 92-02-22 by Chris Arthur to further generalize.
 #
-# Copyright (C) 1991-2018 Free Software Foundation, Inc.
+# Copyright (C) 1991-2022 Free Software Foundation, Inc.
 # This file is part of GNU Make.
 #
 # GNU Make is free software; you can redistribute it and/or modify it under
@@ -30,6 +30,9 @@
 
 # $Id$
 
+use Config;
+use Cwd;
+use File::Spec;
 
 # The number of test categories we've run
 $categories_run = 0;
@@ -44,6 +47,10 @@ $tests_run = 0;
 # The number of tests in this category that have passed
 $tests_passed = 0;
 
+$port_type = undef;
+$osname = undef;
+$vos = undef;
+$pathsep = undef;
 
 # Yeesh.  This whole test environment is such a hack!
 $test_passed = 1;
@@ -52,58 +59,49 @@ $test_passed = 1;
 $test_timeout = 5;
 $test_timeout = 10 if $^O eq 'VMS';
 
-# Path to Perl--make sure it uses forward-slashes
+$diff_name = undef;
+
+# Path to Perl
 $perl_name = $^X;
-$perl_name =~ tr,\\,/,;
-
-# Find the strings that will be generated for various error codes.
-# We want them from the C locale regardless of our current locale.
-
-my $loc = undef;
-if ($has_POSIX) {
-    $loc = POSIX::setlocale(POSIX::LC_MESSAGES);
-    POSIX::setlocale(POSIX::LC_MESSAGES, 'C');
+if ($^O ne 'VMS') {
+    $perl_name .= $Config{_exe} unless $perl_name =~ m/$Config{_exe}$/i;
 }
 
-$ERR_no_such_file = undef;
-$ERR_read_only_file = undef;
-$ERR_unreadable_file = undef;
+sub which {
+  my $cmd = $_[0];
 
-if (open(my $F, '<', 'file.none')) {
-    print "Opened non-existent file! Skipping related tests.\n";
-} else {
-    $ERR_no_such_file = "$!";
+  # Poor man's File::Which
+  my ($v,$d,$f) = File::Spec->splitpath($cmd);
+  if ($d) {
+    # The command has a pathname so don't look for it in PATH.
+    # Use forward-slashes even on Windows, else it fails in recipes.
+    (-f $cmd and -x _) or return undef;
+    $cmd =~ tr,\\,/,;
+    return $cmd;
+  }
+
+  my @ext;
+  if ($port_type eq 'UNIX' || $port_type eq 'VMS-DCL') {
+    @ext = ('');
+  } else {
+    @ext = index($f, '.') == -1 ? () : ('');
+    push @ext, split /;/, $ENV{PATHEXT};
+  }
+
+  foreach my $dir (File::Spec->path()) {
+    foreach my $e (@ext) {
+      my $p = File::Spec->catfile($dir, "$cmd$e");
+      (-f $p and -x _) or next;
+      # Use forward-slashes even on Windows, else it fails in recipes.
+      $p =~ tr,\\,/,;
+      return $p;
+    }
+  }
+  return undef;
 }
 
-unlink('file.out');
-touch('file.out');
-
-chmod(0444, 'file.out');
-if (open(my $F, '>', 'file.out')) {
-    print "Opened read-only file! Skipping related tests.\n";
-    close($F);
-} else {
-    $ERR_read_only_file = "$!";
-}
-
-chmod(0000, 'file.out');
-if (open(my $F, '<', 'file.out')) {
-    print "Opened unreadable file!  Skipping related tests.\n";
-    close($F);
-} else {
-    $ERR_unreadable_file = "$!";
-}
-
-unlink('file.out') or die "Failed to delete file.out: $!\n";
-
-$loc and POSIX::setlocale(POSIX::LC_MESSAGES, $loc);
-
-# %makeENV is the cleaned-out environment.
+# %makeENV is the cleaned-out environment.  Tests must not modify it.
 %makeENV = ();
-
-# %extraENV are any extra environment variables the tests might want to set.
-# These are RESET AFTER EVERY TEST!
-%extraENV = ();
 
 sub vms_get_process_logicals {
   # Sorry for the long note here, but to keep this test running on
@@ -165,25 +163,43 @@ sub resetENV
       }
     }
   }
+}
 
-  foreach $v (keys %extraENV) {
-    $ENV{$v} = $extraENV{$v};
-    delete $extraENV{$v};
-  }
+# Returns a string-ified version of cmd which is a value provided to exec()
+# so it can either be a ref of a list or a string.
+sub cmd2str
+{
+    my $cmd = $_[0];
+    if (!ref($cmd)) {
+        return $cmd;
+    }
+
+    my @c;
+    foreach (@$cmd) {
+        if (/[][#;"*?&|<>(){}\$`^~!]/) {
+            s/\'/\'\\'\'/g;
+            push @c, "'$_'";
+        } else {
+            push @c, $_;
+        }
+    }
+    return join(' ', @c);
 }
 
 sub toplevel
 {
   # Pull in benign variables from the user's environment
 
-  foreach (# UNIX-specific things
+  foreach (# POSIX-specific things
            'TZ', 'TMPDIR', 'HOME', 'USER', 'LOGNAME', 'PATH',
            'LD_LIBRARY_PATH',
+           # *SAN things
+           'ASAN_OPTIONS', 'UBSAN_OPTIONS',
            # Purify things
            'PURIFYOPTIONS',
-           # Windows NT-specific stuff
-           'Path', 'SystemRoot',
-           # DJGPP-specific stuff
+           # Windows-specific things
+           'Path', 'SystemRoot', 'TEMP', 'TMP', 'USERPROFILE', 'PATHEXT',
+           # DJGPP-specific things
            'DJDIR', 'DJGPP', 'SHELL', 'COMSPEC', 'HOSTNAME', 'LFN',
            'FNCASE', '387', 'EMU387', 'GROUP'
           ) {
@@ -193,6 +209,8 @@ sub toplevel
   # Make sure our compares are not foiled by locale differences
 
   $makeENV{LC_ALL} = 'C';
+  $makeENV{LANG} = 'C';
+  $makeENV{LANGUAGE} = 'C';
 
   # Replace the environment with the new one
   #
@@ -217,6 +235,14 @@ sub toplevel
 
   &get_osname;  # sets $osname, $vos, $pathsep, and $short_filenames
 
+  $perl_name = which($perl_name);
+
+  # See if we have a diff
+  $diff_name = which('diff');
+  if (!$diff_name) {
+      print "No diff found; differences will not be shown\n";
+  }
+
   &set_defaults;  # suite-defined
 
   &parse_command_line (@ARGV);
@@ -230,85 +256,71 @@ sub toplevel
 
   &print_banner;
 
-  if ($osname eq 'VMS' && $cwdslash eq "")
-  {
+  if ($osname eq 'VMS' && $cwdslash eq "") {
     # Porting this script to VMS revealed a small bug in opendir() not
     # handling search lists correctly when the directory only exists in
     # one of the logical_devices.  Need to find the first directory in
     # the search list, as that is where things will be written to.
-    my @dirs = split("/", $pwd);
+    my @dirs = split('/', $cwdpath);
 
     my $logical_device = $ENV{$dirs[1]};
-    if ($logical_device =~ /([A-Za-z0-9_]+):(:?.+:)+/)
-    {
-        # A search list was found.  Grab the first logical device
-        # and use it instead of the search list.
-        $dirs[1]=$1;
-        my $lcl_pwd = join('/', @dirs);
-        $workpath = $lcl_pwd . '/' . $workdir
+    if ($logical_device =~ /([A-Za-z0-9_]+):(:?.+:)+/) {
+      # A search list was found.  Grab the first logical device
+      # and use it instead of the search list.
+      $dirs[1]=$1;
+      my $lcl_pwd = join('/', @dirs);
+      $workpath = $lcl_pwd . '/' . $workdir
     }
   }
 
-  if (-d $workpath)
-  {
+  if (-d $workpath) {
     print "Clearing $workpath...\n";
     &remove_directory_tree("$workpath/")
-          || &error ("Couldn't wipe out $workpath\n");
-  }
-  else
-  {
-    mkdir ($workpath, 0777) || &error ("Couldn't mkdir $workpath: $!\n");
+      or &error ("Couldn't wipe out $workpath: $!\n");
+  } else {
+    mkdir ($workpath, 0777) or &error ("Couldn't mkdir $workpath: $!\n");
   }
 
-  if (!-d $scriptpath)
-  {
+  if (!-d $scriptpath) {
     &error ("Failed to find $scriptpath containing perl test scripts.\n");
   }
 
-  if (@TESTS)
-  {
+  if (@TESTS) {
     print "Making work dirs...\n";
-    foreach $test (@TESTS)
-    {
-      if ($test =~ /^([^\/]+)\//)
-      {
+    foreach $test (@TESTS) {
+      if ($test =~ /^([^\/]+)\//) {
         $dir = $1;
         push (@rmdirs, $dir);
         -d "$workpath/$dir"
-           || mkdir ("$workpath/$dir", 0777)
-           || &error ("Couldn't mkdir $workpath/$dir: $!\n");
+            or mkdir ("$workpath/$dir", 0777)
+            or &error ("Couldn't mkdir $workpath/$dir: $!\n");
       }
     }
-  }
-  else
-  {
+  } else {
     print "Finding tests...\n";
     opendir (SCRIPTDIR, $scriptpath)
-        || &error ("Couldn't opendir $scriptpath: $!\n");
+        or &error ("Couldn't opendir $scriptpath: $!\n");
     @dirs = grep (!/^(\..*|CVS|RCS)$/, readdir (SCRIPTDIR) );
     closedir (SCRIPTDIR);
-    foreach $dir (@dirs)
-    {
+    foreach my $dir (@dirs) {
       next if ($dir =~ /^(\..*|CVS|RCS)$/ || ! -d "$scriptpath/$dir");
       push (@rmdirs, $dir);
-      # VMS can have overlayed file systems, so directories may repeat.
+      # VMS can have overlaid file systems, so directories may repeat.
       next if -d "$workpath/$dir";
       mkdir ("$workpath/$dir", 0777)
-          || &error ("Couldn't mkdir $workpath/$dir: $!\n");
+          or &error ("Couldn't mkdir $workpath/$dir: $!\n");
       opendir (SCRIPTDIR, "$scriptpath/$dir")
-          || &error ("Couldn't opendir $scriptpath/$dir: $!\n");
+          or &error ("Couldn't opendir $scriptpath/$dir: $!\n");
       @files = grep (!/^(\..*|CVS|RCS|.*~)$/, readdir (SCRIPTDIR) );
       closedir (SCRIPTDIR);
-      foreach $test (@files)
-      {
+      foreach my $test (@files) {
         -d $test and next;
         push (@TESTS, "$dir/$test");
       }
     }
   }
 
-  if (@TESTS == 0)
-  {
+  if (@TESTS == 0) {
     &error ("\nNo tests in $scriptpath, and none were specified.\n");
   }
 
@@ -316,8 +328,7 @@ sub toplevel
 
   run_all_tests();
 
-  foreach $dir (@rmdirs)
-  {
+  foreach my $dir (@rmdirs) {
     rmdir ("$workpath/$dir");
   }
 
@@ -326,8 +337,7 @@ sub toplevel
   $categories_failed = $categories_run - $categories_passed;
   $total_tests_failed = $total_tests_run - $total_tests_passed;
 
-  if ($total_tests_failed)
-  {
+  if ($total_tests_failed) {
     print "\n$total_tests_failed Test";
     print "s" unless $total_tests_failed == 1;
     print " in $categories_failed Categor";
@@ -335,21 +345,21 @@ sub toplevel
     print " Failed (See .$diffext* files in $workdir dir for details) :-(\n\n";
     return 0;
   }
-  else
-  {
-    print "\n$total_tests_passed Test";
-    print "s" unless $total_tests_passed == 1;
-    print " in $categories_passed Categor";
-    print ($categories_passed == 1 ? "y" : "ies");
-    print " Complete ... No Failures :-)\n\n";
-    return 1;
-  }
+
+  print "\n$total_tests_passed Test";
+  print "s" unless $total_tests_passed == 1;
+  print " in $categories_passed Categor";
+  print ($categories_passed == 1 ? "y" : "ies");
+  print " Complete ... No Failures :-)\n\n";
+  return 1;
 }
 
 sub get_osname
 {
   # Set up an initial value.  In perl5 we can do it the easy way.
   $osname = defined($^O) ? $^O : '';
+  $vos = 0;
+  $pathsep = "/";
 
   # find the type of the port.  We do this up front to have a single
   # point of change if it needs to be tweaked.
@@ -385,10 +395,7 @@ sub get_osname
     $port_type = 'UNIX';
   }
 
-  if ($osname eq 'VMS')
-  {
-    $vos = 0;
-    $pathsep = "/";
+  if ($osname eq 'VMS') {
     return;
   }
 
@@ -397,9 +404,9 @@ sub get_osname
   # See if the filesystem supports long file names with multiple
   # dots.  DOS doesn't.
   $short_filenames = 0;
-  (open (TOUCHFD, "> fancy.file.name") && close (TOUCHFD))
-      || ($short_filenames = 1);
-  unlink ("fancy.file.name") || ($short_filenames = 1);
+  (open (TOUCHFD, "> fancy.file.name") and close (TOUCHFD))
+      or $short_filenames = 1;
+  unlink ("fancy.file.name") or $short_filenames = 1;
 
   if (! $short_filenames) {
     # Thanks go to meyering@cs.utexas.edu (Jim Meyering) for suggesting a
@@ -408,44 +415,37 @@ sub get_osname
     # Because perl on VOS translates /'s to >'s, we need to test for
     # VOSness rather than testing for Unixness (ie, try > instead of /).
 
-    mkdir (".ostest", 0777) || &error ("Couldn't create .ostest: $!\n", 1);
-    open (TOUCHFD, "> .ostest>ick") && close (TOUCHFD);
-    chdir (".ostest") || &error ("Couldn't chdir to .ostest: $!\n", 1);
+    mkdir (".ostest", 0777) or &error ("Couldn't create .ostest: $!\n", 1);
+    open (TOUCHFD, "> .ostest>ick") and close (TOUCHFD);
+    chdir (".ostest") or &error ("Couldn't chdir to .ostest: $!\n", 1);
   }
 
-  if (! $short_filenames && -f "ick")
-  {
+  if (! $short_filenames && -f "ick") {
     $osname = "vos";
     $vos = 1;
     $pathsep = ">";
-  }
-  else
-  {
-    # the following is regrettably knarly, but it seems to be the only way
+
+  } elsif ($osname eq '') {
+    # the following is regrettably gnarly, but it seems to be the only way
     # to not get ugly error messages if uname can't be found.
     # Hmmm, BSD/OS 2.0's uname -a is excessively verbose.  Let's try it
     # with switches first.
     eval "chop (\$osname = `sh -c 'uname -nmsr 2>&1'`)";
-    if ($osname =~ /not found/i)
-    {
-        $osname = "(something posixy with no uname)";
+    if ($osname =~ /not found/i) {
+      $osname = "(something posixy with no uname)";
+
+    } elsif ($@ ne "" || $?) {
+      eval "chop (\$osname = `sh -c 'uname -a 2>&1'`)";
+      if ($@ ne "" || $?) {
+        $osname = "(something posixy)";
+      }
     }
-    elsif ($@ ne "" || $?)
-    {
-        eval "chop (\$osname = `sh -c 'uname -a 2>&1'`)";
-        if ($@ ne "" || $?)
-        {
-            $osname = "(something posixy)";
-        }
-    }
-    $vos = 0;
-    $pathsep = "/";
   }
 
   if (! $short_filenames) {
-    chdir ("..") || &error ("Couldn't chdir to ..: $!\n", 1);
+    chdir ("..") or &error ("Couldn't chdir to ..: $!\n", 1);
     unlink (".ostest>ick");
-    rmdir (".ostest") || &error ("Couldn't rmdir .ostest: $!\n", 1);
+    rmdir (".ostest") or &error ("Couldn't rmdir .ostest: $!\n", 1);
   }
 }
 
@@ -455,61 +455,50 @@ sub parse_command_line
 
   # use @ARGV if no args were passed in
 
-  if (@argv == 0)
-  {
+  if (@argv == 0) {
     @argv = @ARGV;
   }
 
   # look at each option; if we don't recognize it, maybe the suite-specific
   # command line parsing code will...
 
-  while (@argv)
-  {
+  while (@argv) {
     $option = shift @argv;
-    if ($option =~ /^-debug$/i)
-    {
-      print "\nDEBUG ON\n";
-      $debug = 1;
-    }
-    elsif ($option =~ /^-usage$/i)
-    {
+    if ($option =~ /^-usage$/i) {
       &print_usage;
       exit 0;
     }
-    elsif ($option =~ /^-(h|help)$/i)
-    {
+    if ($option =~ /^-(h|help)$/i) {
       &print_help;
       exit 0;
     }
-    elsif ($option =~ /^-profile$/i)
-    {
+
+    if ($option =~ /^-debug$/i) {
+      print "\nDEBUG ON\n";
+      $debug = 1;
+
+    } elsif ($option =~ /^-profile$/i) {
       $profile = 1;
-    }
-    elsif ($option =~ /^-verbose$/i)
-    {
+
+    } elsif ($option =~ /^-verbose$/i) {
       $verbose = 1;
-    }
-    elsif ($option =~ /^-detail$/i)
-    {
+
+    } elsif ($option =~ /^-detail$/i) {
       $detail = 1;
       $verbose = 1;
-    }
-    elsif ($option =~ /^-keep$/i)
-    {
+
+    } elsif ($option =~ /^-keep$/i) {
       $keep = 1;
-    }
-    elsif (&valid_option($option))
-    {
+
+    } elsif (&valid_option($option)) {
       # The suite-defined subroutine takes care of the option
-    }
-    elsif ($option =~ /^-/)
-    {
+
+    } elsif ($option =~ /^-/) {
       print "Invalid option: $option\n";
       &print_usage;
       exit 0;
-    }
-    else # must be the name of a test
-    {
+
+    } else { # must be the name of a test
       $option =~ s/\.pl$//;
       push(@TESTS,$option);
     }
@@ -518,14 +507,12 @@ sub parse_command_line
 
 sub max
 {
-  local($num) = shift @_;
-  local($newnum);
+  my $num = shift @_;
+  my $newnum;
 
-  while (@_)
-  {
+  while (@_) {
     $newnum = shift @_;
-    if ($newnum > $num)
-    {
+    if ($newnum > $num) {
       $num = $newnum;
     }
   }
@@ -535,173 +522,171 @@ sub max
 
 sub print_centered
 {
-  local($width, $string) = @_;
-  local($pad);
+  my ($width, $string) = @_;
 
-  if (length ($string))
-  {
-    $pad = " " x ( ($width - length ($string) + 1) / 2);
+  if (length ($string)) {
+    my $pad = " " x ( ($width - length ($string) + 1) / 2);
     print "$pad$string";
   }
 }
 
 sub print_banner
 {
-  local($info);
-  local($line);
-  local($len);
-
-  $info = "Running tests for $testee on $osname\n";  # $testee is suite-defined
-  $len = &max (length ($line), length ($testee_version),
-               length ($banner_info), 73) + 5;
-  $line = ("-" x $len) . "\n";
-  if ($len < 78)
-  {
-    $len = 78;
-  }
+  # $testee is suite-defined
+  my $info = "Running tests for $testee on $osname";
+  my $len = &max (length($info), length($testee_version), 77) + 2;
+  my $line = ("-" x $len) . "\n";
 
   &print_centered ($len, $line);
-  &print_centered ($len, $info);
-  &print_centered ($len, $testee_version);  # suite-defined
-  &print_centered ($len, $banner_info);     # suite-defined
+  &print_centered ($len, $info."\n");
+  &print_centered ($len, $testee_version);
   &print_centered ($len, $line);
   print "\n";
 }
 
 sub run_all_tests
 {
-    $categories_run = 0;
+  # Make sure we always run the tests from the current directory
+  unshift(@INC, cwd());
 
-    $lasttest = '';
-    foreach $testname (sort @TESTS) {
-        # Skip duplicates on VMS caused by logical name search lists.
-        next if $testname eq $lasttest;
-        $lasttest = $testname;
-        $suite_passed = 1;       # reset by test on failure
-        $num_of_logfiles = 0;
-        $num_of_tmpfiles = 0;
-        $description = "";
-        $details = "";
-        $old_makefile = undef;
-        $testname =~ s/^$scriptpath$pathsep//;
-        $perl_testname = "$scriptpath$pathsep$testname";
-        $testname =~ s/(\.pl|\.perl)$//;
-        $testpath = "$workpath$pathsep$testname";
-        # Leave enough space in the extensions to append a number, even
-        # though it needs to fit into 8+3 limits.
-        if ($short_filenames) {
-            $logext = 'l';
-            $diffext = 'd';
-            $baseext = 'b';
-            $runext = 'r';
-            $extext = '';
-        } else {
-            $logext = 'log';
-            $diffext = 'diff';
-            $baseext = 'base';
-            $runext = 'run';
-            $extext = '.';
-        }
-        $extext = '_' if $^O eq 'VMS';
-        $log_filename = "$testpath.$logext";
-        $diff_filename = "$testpath.$diffext";
-        $base_filename = "$testpath.$baseext";
-        $run_filename = "$testpath.$runext";
-        $tmp_filename = "$testpath.$tmpfilesuffix";
+  $categories_run = 0;
 
-        -f $perl_testname or die "Invalid test: $testname\n\n";
+  # Make a copy of STDIN so we can reset it
+  open(INCOPY, "<&STDIN");
 
-        setup_for_test();
+  # Leave enough space in the extensions to append a number, even
+  # though it needs to fit into 8+3 limits.
+  if ($short_filenames) {
+    $logext = 'l';
+    $diffext = 'd';
+    $baseext = 'b';
+    $runext = 'r';
+    $extext = '';
+  } else {
+    $logext = 'log';
+    $diffext = 'diff';
+    $baseext = 'base';
+    $runext = 'run';
+    $extext = '.';
+  }
 
-        $output = "........................................................ ";
+  $lasttest = '';
+  # $testname is published
+  foreach $testname (sort @TESTS) {
+    # Skip duplicates on VMS caused by logical name search lists.
+    next if $testname eq $lasttest;
 
-        substr($output,0,length($testname)) = "$testname ";
+    $lasttest = $testname;
+    $suite_passed = 1;       # reset by test on failure
+    $num_of_logfiles = 0;
+    $num_of_tmpfiles = 0;
+    $description = "";
+    $details = "";
+    $old_makefile = undef;
+    $testname =~ s/^$scriptpath$pathsep//;
+    $perl_testname = "$scriptpath$pathsep$testname";
+    $testname =~ s/(\.pl|\.perl)$//;
+    $testpath = "$workpath$pathsep$testname";
+    $extext = '_' if $^O eq 'VMS';
+    $log_filename = "$testpath.$logext";
+    $diff_filename = "$testpath.$diffext";
+    $base_filename = "$testpath.$baseext";
+    $run_filename = "$testpath.$runext";
+    $tmp_filename = "$testpath.$tmpfilesuffix";
 
-        print $output;
+    -f $perl_testname or die "Invalid test: $testname\n\n";
 
-        $tests_run = 0;
-        $tests_passed = 0;
+    setup_for_test();
 
-        # Run the test!
-        $code = do $perl_testname;
+    $output = "........................................................ ";
 
-        ++$categories_run;
-        $total_tests_run += $tests_run;
-        $total_tests_passed += $tests_passed;
+    substr($output, 0, length($testname)) = "$testname ";
 
-        # How did it go?
-        if (!defined($code)) {
-            # Failed to parse or called die
-            if (length ($@)) {
-                warn "\n*** Test died ($testname): $@\n";
-            } else {
-                warn "\n*** Couldn't parse $perl_testname\n";
-            }
-            $status = "FAILED ($tests_passed/$tests_run passed)";
-        }
+    print $output;
 
-        elsif ($code == -1) {
-            # Skipped... not supported
-            $status = "N/A";
-            --$categories_run;
-        }
+    $tests_run = 0;
+    $tests_passed = 0;
 
-        elsif ($code != 1) {
-            # Bad result... this shouldn't really happen.  Usually means that
-            # the suite forgot to end with "1;".
-            warn "\n*** Test returned $code\n";
-            $status = "FAILED ($tests_passed/$tests_run passed)";
-        }
+    # Run the test!
+    $code = do $perl_testname;
 
-        elsif ($tests_run == 0) {
-            # Nothing was done!!
-            $status = "FAILED (no tests found!)";
-        }
+    # Reset STDIN from the copy in case it was changed
+    open(STDIN, "<&INCOPY");
 
-        elsif ($tests_run > $tests_passed) {
-            # Lose!
-            $status = "FAILED ($tests_passed/$tests_run passed)";
-        }
+    ++$categories_run;
+    $total_tests_run += $tests_run;
+    $total_tests_passed += $tests_passed;
 
-        else {
-            # Win!
-            ++$categories_passed;
-            $status = "ok     ($tests_passed passed)";
+    # How did it go?
+    if (!defined($code)) {
+      # Failed to parse or called die
+      if (length ($@)) {
+        warn "\n*** Test died ($testname): $@\n";
+      } else {
+        warn "\n*** Couldn't parse $perl_testname\n";
+      }
+      $status = "FAILED ($tests_passed/$tests_run passed)";
 
-            # Clean up
-            for ($i = $num_of_tmpfiles; $i; $i--) {
-                rmfiles($tmp_filename . num_suffix($i));
-            }
-            for ($i = $num_of_logfiles ? $num_of_logfiles : 1; $i; $i--) {
-                rmfiles($log_filename . num_suffix($i));
-                rmfiles($base_filename . num_suffix($i));
-            }
-        }
+    } elsif ($code == -1) {
+      # Skipped... not supported
+      $status = "N/A";
+      --$categories_run;
 
-        # If the verbose option has been specified, then a short description
-        # of each test is printed before displaying the results of each test
-        # describing WHAT is being tested.
+    } elsif ($code != 1) {
+      # Bad result... this shouldn't really happen.  Usually means that
+      # the suite forgot to end with "1;".
+      warn "\n*** Test returned $code\n";
+      $status = "FAILED ($tests_passed/$tests_run passed)";
 
-        if ($verbose) {
-            if ($detail) {
-                print "\nWHAT IS BEING TESTED\n";
-                print "--------------------";
-            }
-            print "\n\n$description\n\n";
-        }
+    } elsif ($tests_run == 0) {
+      # Nothing was done!!
+      $status = "FAILED (no tests found!)";
 
-        # If the detail option has been specified, then the details of HOW
-        # the test is testing what it says it is testing in the verbose output
-        # will be displayed here before the results of the test are displayed.
+    } elsif ($tests_run > $tests_passed) {
+      # Lose!
+      $status = "FAILED ($tests_passed/$tests_run passed)";
 
-        if ($detail) {
-            print "\nHOW IT IS TESTED\n";
-            print "----------------";
-            print "\n\n$details\n\n";
-        }
+    } else {
+      # Win!
+      ++$categories_passed;
+      $status = "ok     ($tests_passed passed)";
 
-        print "$status\n";
+      # Clean up
+      for ($i = $num_of_tmpfiles; $i; $i--) {
+        rmfiles($tmp_filename . num_suffix($i));
+      }
+      for ($i = $num_of_logfiles ? $num_of_logfiles : 1; $i; $i--) {
+        rmfiles($log_filename . num_suffix($i));
+        rmfiles($base_filename . num_suffix($i));
+      }
     }
+
+    # If the verbose option has been specified, then a short description
+    # of each test is printed before displaying the results of each test
+    # describing WHAT is being tested.
+
+    if ($verbose) {
+      if ($detail) {
+        print "\nWHAT IS BEING TESTED\n";
+        print "--------------------";
+      }
+      print "\n\n$description\n\n";
+    }
+
+    # If the detail option has been specified, then the details of HOW
+    # the test is testing what it says it is testing in the verbose output
+    # will be displayed here before the results of the test are displayed.
+
+    if ($detail) {
+      print "\nHOW IT IS TESTED\n";
+      print "----------------";
+      print "\n\n$details\n\n";
+    }
+
+    print "$status\n";
+  }
+
+  close(INCOPY);
 }
 
 # If the keep flag is not set, this subroutine deletes all filenames that
@@ -709,10 +694,9 @@ sub run_all_tests
 
 sub rmfiles
 {
-  local(@files) = @_;
+  my (@files) = @_;
 
-  if (!$keep)
-  {
+  if (!$keep) {
     return (unlink @files);
   }
 
@@ -721,8 +705,7 @@ sub rmfiles
 
 sub print_standard_usage
 {
-  local($plname,@moreusage) = @_;
-  local($line);
+  my ($plname, @moreusage) = @_;
 
   print "usage:\t$plname [testname] [-verbose] [-detail] [-keep]\n";
   print "\t\t\t[-profile] [-usage] [-help] [-debug]\n";
@@ -733,17 +716,15 @@ sub print_standard_usage
 
 sub print_standard_help
 {
-  local(@morehelp) = @_;
-  local($line);
-  local($tline);
-  local($t) = "      ";
+  my (@morehelp) = @_;
+  my $t = "      ";
 
-  $line = "Test Driver For $testee";
+  my $line = "Test Driver For $testee";
   print "$line\n";
   $line = "=" x length ($line);
   print "$line\n";
 
-  &print_usage;
+  print_usage();
 
   print "\ntestname\n"
       . "${t}You may, if you wish, run only ONE test if you know the name\n"
@@ -773,11 +754,9 @@ sub print_standard_help
       . "${t}This can be helpful if you're having a problem adding a test\n"
       . "${t}to the suite, or if the test fails!\n";
 
-  foreach $line (@morehelp)
-  {
-    $tline = $line;
-    if (substr ($tline, 0, 1) eq "\t")
-    {
+  foreach $line (@morehelp) {
+    my $tline = $line;
+    if (substr ($tline, 0, 1) eq "\t") {
       substr ($tline, 0, 1) = $t;
     }
     print "$tline\n";
@@ -790,23 +769,17 @@ sub print_standard_help
 
 sub get_caller
 {
-  local($depth);
-  local($package);
-  local($filename);
-  local($linenum);
-
-  $depth = defined ($_[0]) ? $_[0] : 1;
-  ($package, $filename, $linenum) = caller ($depth + 1);
+  my $depth = defined ($_[0]) ? $_[0] : 1;
+  my ($pkg, $filename, $linenum) = caller ($depth + 1);
   return "$filename: $linenum";
 }
 
 sub error
 {
-  local($message) = $_[0];
-  local($caller) = &get_caller (1);
+  my $message = $_[0];
+  my $caller = &get_caller (1);
 
-  if (defined ($_[1]))
-  {
+  if (defined ($_[1])) {
     $caller = &get_caller ($_[1] + 1) . " -> $caller";
   }
 
@@ -815,165 +788,169 @@ sub error
 
 sub compare_output
 {
-  local($answer,$logfile) = @_;
-  local($slurp, $answer_matched) = ('', 0);
+  my ($answer, $logfile) = @_;
+  my ($slurp, $answer_matched) = ('', 0);
 
   ++$tests_run;
 
   if (! defined $answer) {
-      print "Ignoring output ........ " if $debug;
-      $answer_matched = 1;
+    print "Ignoring output ........ " if $debug;
+    $answer_matched = 1;
   } else {
-      print "Comparing Output ........ " if $debug;
+    print "Comparing output ........ " if $debug;
 
-      $slurp = &read_file_into_string ($logfile);
+    $slurp = &read_file_into_string ($logfile);
 
-      # For make, get rid of any time skew error before comparing--too bad this
-      # has to go into the "generic" driver code :-/
-      $slurp =~ s/^.*modification time .*in the future.*\n//gm;
-      $slurp =~ s/^.*Clock skew detected.*\n//gm;
+    # For make, get rid of any time skew error before comparing--too bad this
+    # has to go into the "generic" driver code :-/
+    $slurp =~ s/^.*modification time .*in the future.*\n//gm;
+    $slurp =~ s/^.*Clock skew detected.*\n//gm;
 
-      if ($slurp eq $answer) {
-          $answer_matched = 1;
-      } else {
-          # See if it is a slash or CRLF problem
-          local ($answer_mod, $slurp_mod) = ($answer, $slurp);
+    if ($slurp eq $answer) {
+        $answer_matched = 1;
+    } else {
+      # See if it is a slash or CRLF problem
+      my ($answer_mod, $slurp_mod) = ($answer, $slurp);
 
-          $answer_mod =~ tr,\\,/,;
-          $answer_mod =~ s,\r\n,\n,gs;
+      $answer_mod =~ tr,\\,/,;
+      $answer_mod =~ s,\r\n,\n,gs;
 
-          $slurp_mod =~ tr,\\,/,;
-          $slurp_mod =~ s,\r\n,\n,gs;
+      $slurp_mod =~ tr,\\,/,;
+      $slurp_mod =~ s,\r\n,\n,gs;
 
+      $answer_matched = ($slurp_mod eq $answer_mod);
+      if ($^O eq 'VMS') {
+
+        # VMS has extra blank lines in output sometimes.
+        # Ticket #41760
+        if (!$answer_matched) {
+          $slurp_mod =~ s/\n\n+/\n/gm;
+          $slurp_mod =~ s/\A\n+//g;
           $answer_matched = ($slurp_mod eq $answer_mod);
-          if ($^O eq 'VMS') {
+        }
 
-            # VMS has extra blank lines in output sometimes.
-            # Ticket #41760
-            if (!$answer_matched) {
-              $slurp_mod =~ s/\n\n+/\n/gm;
-              $slurp_mod =~ s/\A\n+//g;
-              $answer_matched = ($slurp_mod eq $answer_mod);
-            }
+        # VMS adding a "Waiting for unfinished jobs..."
+        # Remove it for now to see what else is going on.
+        if (!$answer_matched) {
+          $slurp_mod =~ s/^.+\*\*\* Waiting for unfinished jobs.+$//m;
+          $slurp_mod =~ s/\n\n/\n/gm;
+          $slurp_mod =~ s/^\n+//gm;
+          $answer_matched = ($slurp_mod eq $answer_mod);
+        }
 
-            # VMS adding a "Waiting for unfinished jobs..."
-            # Remove it for now to see what else is going on.
-            if (!$answer_matched) {
-              $slurp_mod =~ s/^.+\*\*\* Waiting for unfinished jobs.+$//m;
-              $slurp_mod =~ s/\n\n/\n/gm;
-              $slurp_mod =~ s/^\n+//gm;
-              $answer_matched = ($slurp_mod eq $answer_mod);
-            }
+        # VMS wants target device to exist or generates an error,
+        # Some test tagets look like VMS devices and trip this.
+        if (!$answer_matched) {
+          $slurp_mod =~ s/^.+\: no such device or address.*$//gim;
+          $slurp_mod =~ s/\n\n/\n/gm;
+          $slurp_mod =~ s/^\n+//gm;
+          $answer_matched = ($slurp_mod eq $answer_mod);
+        }
 
-            # VMS wants target device to exist or generates an error,
-            # Some test tagets look like VMS devices and trip this.
-            if (!$answer_matched) {
-              $slurp_mod =~ s/^.+\: no such device or address.*$//gim;
-              $slurp_mod =~ s/\n\n/\n/gm;
-              $slurp_mod =~ s/^\n+//gm;
-              $answer_matched = ($slurp_mod eq $answer_mod);
-            }
+        # VMS error message has a different case
+        if (!$answer_matched) {
+          $slurp_mod =~ s/no such file /No such file /gm;
+          $answer_matched = ($slurp_mod eq $answer_mod);
+        }
 
-            # VMS error message has a different case
-            if (!$answer_matched) {
-              $slurp_mod =~ s/no such file /No such file /gm;
-              $answer_matched = ($slurp_mod eq $answer_mod);
-            }
+        # VMS is putting comas instead of spaces in output
+        if (!$answer_matched) {
+          $slurp_mod =~ s/,/ /gm;
+          $answer_matched = ($slurp_mod eq $answer_mod);
+        }
 
-            # VMS is putting comas instead of spaces in output
-            if (!$answer_matched) {
-              $slurp_mod =~ s/,/ /gm;
-              $answer_matched = ($slurp_mod eq $answer_mod);
-            }
+        # VMS Is sometimes adding extra leading spaces to output?
+        if (!$answer_matched) {
+           my $slurp_mod = $slurp_mod;
+           $slurp_mod =~ s/^ +//gm;
+           $answer_matched = ($slurp_mod eq $answer_mod);
+        }
 
-            # VMS Is sometimes adding extra leading spaces to output?
-            if (!$answer_matched) {
-               my $slurp_mod = $slurp_mod;
-               $slurp_mod =~ s/^ +//gm;
-               $answer_matched = ($slurp_mod eq $answer_mod);
-            }
+        # VMS port not handling POSIX encoded child status
+        # Translate error case it for now.
+        if (!$answer_matched) {
+          $slurp_mod =~ s/0x1035a00a/1/gim;
+          $answer_matched = 1 if $slurp_mod =~ /\Q$answer_mod\E/i;
 
-            # VMS port not handling POSIX encoded child status
-            # Translate error case it for now.
-            if (!$answer_matched) {
-              $slurp_mod =~ s/0x1035a00a/1/gim;
-              $answer_matched = 1 if $slurp_mod =~ /\Q$answer_mod\E/i;
+        }
+        if (!$answer_matched) {
+          $slurp_mod =~ s/0x1035a012/2/gim;
+          $answer_matched = ($slurp_mod eq $answer_mod);
+        }
 
-            }
-            if (!$answer_matched) {
-              $slurp_mod =~ s/0x1035a012/2/gim;
-              $answer_matched = ($slurp_mod eq $answer_mod);
-            }
+        # Tests are using a UNIX null command, temp hack
+        # until this can be handled by the VMS port.
+        # ticket # 41761
+        if (!$answer_matched) {
+          $slurp_mod =~ s/^.+DCL-W-NOCOMD.*$//gim;
+          $slurp_mod =~ s/\n\n+/\n/gm;
+          $slurp_mod =~ s/^\n+//gm;
+          $answer_matched = ($slurp_mod eq $answer_mod);
+        }
+        # Tests are using exit 0;
+        # this generates a warning that should stop the make, but does not
+        if (!$answer_matched) {
+          $slurp_mod =~ s/^.+NONAME-W-NOMSG.*$//gim;
+          $slurp_mod =~ s/\n\n+/\n/gm;
+          $slurp_mod =~ s/^\n+//gm;
+          $answer_matched = ($slurp_mod eq $answer_mod);
+        }
 
-            # Tests are using a UNIX null command, temp hack
-            # until this can be handled by the VMS port.
-            # ticket # 41761
-            if (!$answer_matched) {
-              $slurp_mod =~ s/^.+DCL-W-NOCOMD.*$//gim;
-              $slurp_mod =~ s/\n\n+/\n/gm;
-              $slurp_mod =~ s/^\n+//gm;
-              $answer_matched = ($slurp_mod eq $answer_mod);
-            }
-            # Tests are using exit 0;
-            # this generates a warning that should stop the make, but does not
-            if (!$answer_matched) {
-              $slurp_mod =~ s/^.+NONAME-W-NOMSG.*$//gim;
-              $slurp_mod =~ s/\n\n+/\n/gm;
-              $slurp_mod =~ s/^\n+//gm;
-              $answer_matched = ($slurp_mod eq $answer_mod);
-            }
+        # VMS is sometimes adding single quotes to output?
+        if (!$answer_matched) {
+          my $noq_slurp_mod = $slurp_mod;
+          $noq_slurp_mod =~ s/\'//gm;
+          $answer_matched = ($noq_slurp_mod eq $answer_mod);
 
-            # VMS is sometimes adding single quotes to output?
-            if (!$answer_matched) {
-              my $noq_slurp_mod = $slurp_mod;
-              $noq_slurp_mod =~ s/\'//gm;
-              $answer_matched = ($noq_slurp_mod eq $answer_mod);
-
-              # And missing an extra space in output
-              if (!$answer_matched) {
-                $noq_answer_mod = $answer_mod;
-                $noq_answer_mod =~ s/\h\h+/ /gm;
-                $answer_matched = ($noq_slurp_mod eq $noq_answer_mod);
-              }
-
-              # VMS adding ; to end of some lines.
-              if (!$answer_matched) {
-                $noq_slurp_mod =~ s/;\n/\n/gm;
-                $answer_matched = ($noq_slurp_mod eq $noq_answer_mod);
-              }
-
-              # VMS adding trailing space to end of some quoted lines.
-              if (!$answer_matched) {
-                $noq_slurp_mod =~ s/\h+\n/\n/gm;
-                $answer_matched = ($noq_slurp_mod eq $noq_answer_mod);
-              }
-
-              # And VMS missing leading blank line
-              if (!$answer_matched) {
-                $noq_answer_mod =~ s/\A\n//g;
-                $answer_matched = ($noq_slurp_mod eq $noq_answer_mod);
-              }
-
-              # Unix double quotes showing up as single quotes on VMS.
-              if (!$answer_matched) {
-                $noq_answer_mod =~ s/\"//g;
-                $answer_matched = ($noq_slurp_mod eq $noq_answer_mod);
-              }
-            }
+          # And missing an extra space in output
+          if (!$answer_matched) {
+            $noq_answer_mod = $answer_mod;
+            $noq_answer_mod =~ s/\h\h+/ /gm;
+            $answer_matched = ($noq_slurp_mod eq $noq_answer_mod);
           }
 
-          # If it still doesn't match, see if the answer might be a regex.
-          if (!$answer_matched && $answer =~ m,^/(.+)/$,) {
-              $answer_matched = ($slurp =~ /$1/);
-              if (!$answer_matched && $answer_mod =~ m,^/(.+)/$,) {
-                  $answer_matched = ($slurp_mod =~ /$1/);
-              }
+          # VMS adding ; to end of some lines.
+          if (!$answer_matched) {
+            $noq_slurp_mod =~ s/;\n/\n/gm;
+            $answer_matched = ($noq_slurp_mod eq $noq_answer_mod);
           }
+
+          # VMS adding trailing space to end of some quoted lines.
+          if (!$answer_matched) {
+            $noq_slurp_mod =~ s/\h+\n/\n/gm;
+            $answer_matched = ($noq_slurp_mod eq $noq_answer_mod);
+          }
+
+          # And VMS missing leading blank line
+          if (!$answer_matched) {
+            $noq_answer_mod =~ s/\A\n//g;
+            $answer_matched = ($noq_slurp_mod eq $noq_answer_mod);
+          }
+
+          # Unix double quotes showing up as single quotes on VMS.
+          if (!$answer_matched) {
+            $noq_answer_mod =~ s/\"//g;
+            $answer_matched = ($noq_slurp_mod eq $noq_answer_mod);
+          }
+        }
       }
+
+      # If it still doesn't match, see if the answer might be a regex.
+      if (!$answer_matched && $answer =~ m,^/(.+)/$,) {
+        $answer_matched = ($slurp =~ /$1/);
+        if (!$answer_matched && $answer_mod =~ m,^/(.+)/$,) {
+            $answer_matched = ($slurp_mod =~ /$1/);
+        }
+      }
+    }
   }
 
-  if ($answer_matched && $test_passed)
-  {
+  if ($keep || ! $answer_matched) {
+    &create_file(&get_basefile, $answer);
+    &create_file(&get_runfile, $command_string);
+  }
+
+  if ($answer_matched && $test_passed) {
     print "ok\n" if $debug;
     ++$tests_passed;
     return 1;
@@ -982,15 +959,16 @@ sub compare_output
   if (! $answer_matched) {
     print "DIFFERENT OUTPUT\n" if $debug;
 
-    &create_file (&get_basefile, $answer);
-    &create_file (&get_runfile, $command_string);
-
     print "\nCreating Difference File ...\n" if $debug;
 
     # Create the difference file
-
-    local($command) = "diff -c " . &get_basefile . " " . $logfile;
-    &run_command_with_output(&get_difffile,$command);
+    my $base = get_basefile();
+    if ($diff_name) {
+        my $command = "$diff_name -c $base $logfile";
+        &run_command_with_output(get_difffile(), $command);
+    } else {
+        create_file(get_difffile(), "Log file $logfile differs from base file $base\n");
+    }
   }
 
   return 0;
@@ -998,13 +976,12 @@ sub compare_output
 
 sub read_file_into_string
 {
-  local($filename) = @_;
-  local($oldslash) = $/;
-
+  my ($filename) = @_;
+  my $oldslash = $/;
   undef $/;
 
-  open (RFISFILE, $filename) || return "";
-  local ($slurp) = <RFISFILE>;
+  open (RFISFILE, '<', $filename) or return "";
+  my $slurp = <RFISFILE>;
   close (RFISFILE);
 
   $/ = $oldslash;
@@ -1017,13 +994,12 @@ my @ERRSTACK = ();
 
 sub attach_default_output
 {
-  local ($filename) = @_;
-  local ($code);
+  my ($filename) = @_;
 
   if ($vos)
   {
-    $code = system "++attach_default_output_hack $filename";
-    $code == -2 || &error ("adoh death\n", 1);
+    my $code = system "++attach_default_output_hack $filename";
+    $code == -2 or &error ("ado death\n", 1);
     return 1;
   }
 
@@ -1044,12 +1020,10 @@ sub attach_default_output
 
 sub detach_default_output
 {
-  local ($code);
-
   if ($vos)
   {
-    $code = system "++detach_default_output_hack";
-    $code == -2 || &error ("ddoh death\n", 1);
+    my $code = system "++detach_default_output_hack";
+    $code == -2 or &error ("ddoh death\n", 1);
     return 1;
   }
 
@@ -1065,91 +1039,89 @@ sub detach_default_output
 
 sub _run_with_timeout
 {
-    my $code;
-    if ($^O eq 'VMS') {
-        #local $SIG{ALRM} = sub {
-        #    my $e = $ERRSTACK[0];
-        #    print $e "\nTest timed out after $test_timeout seconds\n";
-        #    die "timeout\n";
-        #};
-        #alarm $test_timeout;
-        system(@_);
-        #alarm 0;
-        my $severity = ${^CHILD_ERROR_NATIVE} & 7;
-        $code = 0;
-        if (($severity & 1) == 0) {
-            $code = 512;
-        }
-
-        # Get the vms status.
-        my $vms_code = ${^CHILD_ERROR_NATIVE};
-
-        # Remove the print status bit
-        $vms_code &= ~0x10000000;
-
-        # Posix code translation.
-        if (($vms_code & 0xFFFFF000) == 0x35a000) {
-            $code = (($vms_code & 0xFFF) >> 3) * 256;
-        }
-
-    } elsif ($port_type eq 'W32') {
-        my $pid = system(1, @_);
-        $pid > 0 or die "Cannot execute $_[0]\n";
-        local $SIG{ALRM} = sub {
-            my $e = $ERRSTACK[0];
-            print $e "\nTest timed out after $test_timeout seconds\n";
-            kill -9, $pid;
-            die "timeout\n";
-        };
-        alarm $test_timeout;
-        my $r = waitpid($pid, 0);
-        alarm 0;
-        $r == -1 and die "No such pid: $pid\n";
-        # This shouldn't happen since we wait forever or timeout via SIGALRM
-        $r == 0 and die "No process exited.\n";
-        $code = $?;
-
-    } else {
-        my $pid = fork();
-        if (! $pid) {
-            exec(@_) or die "exec: Cannot execute $_[0]\n";
-        }
-        local $SIG{ALRM} = sub {
-            my $e = $ERRSTACK[0];
-            print $e "\nTest timed out after $test_timeout seconds\n";
-            # Resend the alarm to our process group to kill the children.
-            $SIG{ALRM} = 'IGNORE';
-            kill -14, $$;
-            die "timeout\n";
-        };
-        alarm $test_timeout;
-        my $r = waitpid($pid, 0);
-        alarm 0;
-        $r == -1 and die "No such pid: $pid\n";
-        # This shouldn't happen since we wait forever or timeout via SIGALRM
-        $r == 0 and die "No process exited.\n";
-        $code = $?;
+  my $code;
+  if ($^O eq 'VMS') {
+    #local $SIG{ALRM} = sub {
+    #    my $e = $ERRSTACK[0];
+    #    print $e "\nTest timed out after $test_timeout seconds\n";
+    #    die "timeout\n";
+    #};
+    #alarm $test_timeout;
+    system(@_);
+    #alarm 0;
+    my $severity = ${^CHILD_ERROR_NATIVE} & 7;
+    $code = 0;
+    if (($severity & 1) == 0) {
+      $code = 512;
     }
 
-    return $code;
+    # Get the vms status.
+    my $vms_code = ${^CHILD_ERROR_NATIVE};
+
+    # Remove the print status bit
+    $vms_code &= ~0x10000000;
+
+    # Posix code translation.
+    if (($vms_code & 0xFFFFF000) == 0x35a000) {
+      $code = (($vms_code & 0xFFF) >> 3) * 256;
+    }
+
+  } elsif ($port_type eq 'W32') {
+    my $pid = system(1, @_);
+    $pid > 0 or die "Cannot execute $_[0]\n";
+    local $SIG{ALRM} = sub {
+      my $e = $ERRSTACK[0];
+      print $e "\nTest timed out after $test_timeout seconds\n";
+      kill -9, $pid;
+      die "timeout\n";
+    };
+    alarm $test_timeout;
+    my $r = waitpid($pid, 0);
+    alarm 0;
+    $r == -1 and die "No such pid: $pid\n";
+    # This shouldn't happen since we wait forever or timeout via SIGALRM
+    $r == 0 and die "No process exited.\n";
+    $code = $?;
+
+  } else {
+    my $pid = fork();
+    if (! $pid) {
+      exec(@_) or die "exec: Cannot execute $_[0]: $!\n";
+    }
+    local $SIG{ALRM} = sub {
+      my $e = $ERRSTACK[0];
+      print $e "\nTest timed out after $test_timeout seconds\n";
+      # Resend the alarm to our process group to kill the children.
+      $SIG{ALRM} = 'IGNORE';
+      kill -14, $$;
+      die "timeout\n";
+    };
+    alarm $test_timeout;
+    my $r = waitpid($pid, 0);
+    alarm 0;
+    $r == -1 and die "No such pid: $pid\n";
+    # This shouldn't happen since we wait forever or timeout via SIGALRM
+    $r == 0 and die "No process exited.\n";
+    $code = $?;
+  }
+
+  return $code;
 }
 
 # This runs a command without any debugging info.
 sub _run_command
 {
-  # We reset this before every invocation.  On Windows I think there is only
-  # one environment, not one per process, so I think that variables set in
-  # test scripts might leak into subsequent tests if this isn't reset--???
-  resetENV();
-
   my $orig = $SIG{ALRM};
   my $code = eval { _run_with_timeout(@_); };
   $SIG{ALRM} = $orig;
 
+  # Reset then environment so that it's clean for the next test.
+  resetENV();
+
   if ($@) {
-      # The eval failed.  If it wasn't SIGALRM then die.
-      $@ eq "timeout\n" or die "Command failed: $@";
-      $code = 14;
+    # The eval failed.  If it wasn't SIGALRM then die.
+    $@ eq "timeout\n" or die "Command failed: $@";
+    $code = 14;
   }
 
   return $code;
@@ -1195,26 +1167,21 @@ sub run_command_with_output
 
 sub remove_directory_tree
 {
-  local ($targetdir) = @_;
-  local ($nuketop) = 1;
-  local ($ch);
+  my ($targetdir) = @_;
+  my ($nuketop) = 1;
 
-  $ch = substr ($targetdir, length ($targetdir) - 1);
-  if ($ch eq "/" || $ch eq $pathsep)
-  {
+  my $ch = substr ($targetdir, length ($targetdir) - 1);
+  if ($ch eq "/" || $ch eq $pathsep) {
     $targetdir = substr ($targetdir, 0, length ($targetdir) - 1);
     $nuketop = 0;
   }
 
-  if (! -e $targetdir)
-  {
-    return 1;
-  }
+  -e $targetdir or return 1;
 
-  &remove_directory_tree_inner ("RDT00", $targetdir) || return 0;
-  if ($nuketop)
-  {
-    rmdir $targetdir || return 0;
+  &remove_directory_tree_inner ("RDT00", $targetdir) or return 0;
+  if ($nuketop && !rmdir ($targetdir)) {
+    print "Cannot remove $targetdir: $!\n";
+    return 0;
   }
 
   return 1;
@@ -1222,35 +1189,28 @@ sub remove_directory_tree
 
 sub remove_directory_tree_inner
 {
-  local ($dirhandle, $targetdir) = @_;
-  local ($object);
-  local ($subdirhandle);
+  my ($dirhandle, $targetdir) = @_;
 
-  opendir ($dirhandle, $targetdir) || return 0;
-  $subdirhandle = $dirhandle;
+  opendir ($dirhandle, $targetdir) or return 0;
+  my $subdirhandle = $dirhandle;
   $subdirhandle++;
-  while ($object = readdir ($dirhandle))
-  {
-    if ($object =~ /^(\.\.?|CVS|RCS)$/)
-    {
-      next;
-    }
-
+  while (my $object = readdir ($dirhandle)) {
+    $object =~ /^(\.\.?|CVS|RCS)$/ and next;
     $object = "$targetdir$pathsep$object";
-    lstat ($object);
 
-    if (-d _ && &remove_directory_tree_inner ($subdirhandle, $object))
-    {
-      rmdir $object || return 0;
-    }
-    else
-    {
-      if ($^O ne 'VMS')
-      {
-        unlink $object || return 0;
+    lstat ($object);
+    if (-d _ && &remove_directory_tree_inner ($subdirhandle, $object)) {
+      if (!rmdir($object)) {
+        print "Cannot remove $object: $!\n";
+        return 0;
       }
-      else
-      {
+    } else {
+      if ($^O ne 'VMS') {
+        if (!unlink $object) {
+          print "Cannot unlink $object: $!\n";
+          return 0;
+        }
+      } else {
         # VMS can have multiple versions of a file.
         1 while unlink $object;
       }
@@ -1264,15 +1224,13 @@ sub remove_directory_tree_inner
 #
 #sub touch
 #{
-#  local (@filenames) = @_;
-#  local ($now) = time;
-#  local ($file);
+#  my (@filenames) = @_;
+#  my $now = time;
 #
-#  foreach $file (@filenames)
-#  {
+#  foreach my $file (@filenames) {
 #    utime ($now, $now, $file)
-#          || (open (TOUCHFD, ">> $file") && close (TOUCHFD))
-#               || &error ("Couldn't touch $file: $!\n", 1);
+#          or (open (TOUCHFD, ">> $file") and close (TOUCHFD))
+#               or &error ("Couldn't touch $file: $!\n", 1);
 #  }
 #  return 1;
 #}
@@ -1287,12 +1245,12 @@ sub remove_directory_tree_inner
 
 sub touch
 {
-  local ($file);
-
-  foreach $file (@_) {
-    (open(T, ">> $file") && print(T "\n") && close(T))
-        || &error("Couldn't touch $file: $!\n", 1);
+  foreach my $file (@_) {
+    (open(T, '>>', $file) and print(T "\n") and close(T))
+        or &error("Couldn't touch $file: $!\n", 1);
   }
+
+  return @_;
 }
 
 # Touch with a time offset.  To DTRT, call touch() then use stat() to get the
@@ -1300,25 +1258,26 @@ sub touch
 
 sub utouch
 {
-  local ($off) = shift;
-  local ($file);
+  my $off = shift;
 
   &touch(@_);
 
-  local (@s) = stat($_[0]);
+  foreach my $f (@_) {
+      my @s = stat($f);
+      utime($s[8]+$off, $s[9]+$off, $f);
+  }
 
-  utime($s[8]+$off, $s[9]+$off, @_);
+  return @_;
 }
 
 # open a file, write some stuff to it, and close it.
 
 sub create_file
 {
-  local ($filename, @lines) = @_;
+  my ($filename, @lines) = @_;
 
-  open (CF, "> $filename") || &error ("Couldn't open $filename: $!\n", 1);
-  foreach $line (@lines)
-  {
+  open (CF, "> $filename") or &error ("Couldn't open $filename: $!\n", 1);
+  foreach $line (@lines) {
     print CF $line;
   }
   close (CF);
@@ -1336,35 +1295,28 @@ sub create_file
 
 sub create_dir_tree
 {
-  local ($basedir, %dirtree) = @_;
-  local ($path);
+  my ($basedir, %dirtree) = @_;
 
   &remove_directory_tree ("$basedir");
-  mkdir ($basedir, 0777) || &error ("Couldn't mkdir $basedir: $!\n", 1);
+  mkdir ($basedir, 0777) or &error ("Couldn't mkdir $basedir: $!\n", 1);
 
-  foreach $path (sort keys (%dirtree))
-  {
-    if ($dirtree {$path} =~ /^DIR$/)
-    {
+  foreach my $path (sort keys (%dirtree)) {
+    if ($dirtree {$path} =~ /^DIR$/) {
       mkdir ("$basedir/$path", 0777)
-               || &error ("Couldn't mkdir $basedir/$path: $!\n", 1);
-    }
-    elsif ($dirtree {$path} =~ /^FILE:(.*)$/)
-    {
+          or &error ("Couldn't mkdir $basedir/$path: $!\n", 1);
+
+    } elsif ($dirtree {$path} =~ /^FILE:(.*)$/) {
       &create_file ("$basedir/$path", $1 . "\n");
-    }
-    elsif ($dirtree {$path} =~ /^LINK:(.*)$/)
-    {
+
+    } elsif ($dirtree {$path} =~ /^LINK:(.*)$/) {
       symlink ("$basedir/$1", "$basedir/$path")
-        || &error ("Couldn't symlink $basedir/$path -> $basedir/$1: $!\n", 1);
-    }
-    else
-    {
+          or &error ("Couldn't symlink $basedir/$path -> $basedir/$1: $!\n", 1);
+
+    } else {
       &error ("Bogus dirtree type: \"$dirtree{$path}\"\n", 1);
     }
   }
-  if ($just_setup_tree)
-  {
+  if ($just_setup_tree) {
     die "Tree is setup...\n";
   }
 }
@@ -1376,40 +1328,27 @@ sub create_dir_tree
 
 sub compare_dir_tree
 {
-  local ($basedir, %dirtree) = @_;
-  local ($path);
-  local ($i);
-  local ($bogus) = 0;
-  local ($contents);
-  local ($target);
-  local ($fulltarget);
-  local ($found);
-  local (@files);
-  local (@allfiles);
+  my ($basedir, %dirtree) = @_;
+  my $bogus = 0;
 
-  opendir (DIR, $basedir) || &error ("Couldn't open $basedir: $!\n", 1);
-  @allfiles = grep (!/^(\.\.?|CVS|RCS)$/, readdir (DIR) );
+  opendir (DIR, $basedir) or &error ("Couldn't open $basedir: $!\n", 1);
+  my @allfiles = grep (!/^(\.\.?|CVS|RCS)$/, readdir (DIR) );
   closedir (DIR);
-  if ($debug)
-  {
+  if ($debug) {
     print "dirtree: (%dirtree)\n$basedir: (@allfiles)\n";
   }
 
-  foreach $path (sort keys (%dirtree))
+  foreach my $path (sort keys (%dirtree))
   {
-    if ($debug)
-    {
+    if ($debug) {
       print "Checking $path ($dirtree{$path}).\n";
     }
 
-    $found = 0;
-    foreach $i (0 .. $#allfiles)
-    {
-      if ($allfiles[$i] eq $path)
-      {
+    my $found = 0;
+    foreach my $i (0 .. $#allfiles) {
+      if ($allfiles[$i] eq $path) {
         splice (@allfiles, $i, 1);  # delete it
-        if ($debug)
-        {
+        if ($debug) {
           print "     Zapped $path; files now (@allfiles).\n";
         }
         lstat ("$basedir/$path");
@@ -1418,18 +1357,15 @@ sub compare_dir_tree
       }
     }
 
-    if (!$found)
-    {
+    if (!$found) {
       print "compare_dir_tree: $path does not exist.\n";
       $bogus = 1;
       next;
     }
 
-    if ($dirtree {$path} =~ /^DIR$/)
-    {
-      if (-d _ && opendir (DIR, "$basedir/$path") )
-      {
-        @files = readdir (DIR);
+    if ($dirtree {$path} =~ /^DIR$/) {
+      if (-d _ && opendir (DIR, "$basedir/$path") ) {
+        my @files = readdir (DIR);
         closedir (DIR);
         @files = grep (!/^(\.\.?|CVS|RCS)$/ && ($_ = "$path/$_"), @files);
         push (@allfiles, @files);
@@ -1437,71 +1373,59 @@ sub compare_dir_tree
         {
           print "     Read in $path; new files (@files).\n";
         }
-      }
-      else
-      {
+
+      } else {
         print "compare_dir_tree: $path is not a dir.\n";
         $bogus = 1;
       }
-    }
-    elsif ($dirtree {$path} =~ /^FILE:(.*)$/)
-    {
-      if (-l _ || !-f _)
-      {
+
+    } elsif ($dirtree {$path} =~ /^FILE:(.*)$/) {
+      if (-l _ || !-f _) {
         print "compare_dir_tree: $path is not a file.\n";
         $bogus = 1;
         next;
       }
 
-      if ($1 ne "*")
-      {
-        $contents = &read_file_into_string ("$basedir/$path");
-        if ($contents ne "$1\n")
-        {
+      if ($1 ne "*") {
+        my $contents = &read_file_into_string ("$basedir/$path");
+        if ($contents ne "$1\n") {
           print "compare_dir_tree: $path contains wrong stuff."
               . "  Is:\n$contentsShould be:\n$1\n";
           $bogus = 1;
         }
       }
-    }
-    elsif ($dirtree {$path} =~ /^LINK:(.*)$/)
-    {
-      $target = $1;
-      if (!-l _)
-      {
+
+    } elsif ($dirtree {$path} =~ /^LINK:(.*)$/) {
+      my $target = $1;
+      if (!-l _) {
         print "compare_dir_tree: $path is not a link.\n";
         $bogus = 1;
         next;
       }
 
-      $contents = readlink ("$basedir/$path");
+      my $contents = readlink ("$basedir/$path");
       $contents =~ tr/>/\//;
-      $fulltarget = "$basedir/$target";
+      my $fulltarget = "$basedir/$target";
       $fulltarget =~ tr/>/\//;
-      if (!($contents =~ /$fulltarget$/))
-      {
-        if ($debug)
-        {
+      if (!($contents =~ /$fulltarget$/)) {
+        if ($debug) {
           $target = $fulltarget;
         }
         print "compare_dir_tree: $path should be link to $target, "
             . "not $contents.\n";
         $bogus = 1;
       }
-    }
-    else
-    {
+
+    } else {
       &error ("Bogus dirtree type: \"$dirtree{$path}\"\n", 1);
     }
   }
 
-  if ($debug)
-  {
+  if ($debug) {
     print "leftovers: (@allfiles).\n";
   }
 
-  foreach $file (@allfiles)
-  {
+  foreach my $file (@allfiles) {
     print "compare_dir_tree: $file should not exist.\n";
     $bogus = 1;
   }
@@ -1516,8 +1440,7 @@ sub compare_dir_tree
 
 sub num_suffix
 {
-  local($num) = @_;
-
+  my ($num) = @_;
   if (--$num > 0) {
     return "$extext$num";
   }
@@ -1535,7 +1458,7 @@ sub num_suffix
 
 sub get_logfile
 {
-  local($no_increment) = @_;
+  my ($no_increment) = @_;
 
   $num_of_logfiles += !$no_increment;
 
@@ -1576,7 +1499,7 @@ sub get_runfile
 
 sub get_tmpfile
 {
-  local($no_increment) = @_;
+  my ($no_increment) = @_;
 
   $num_of_tmpfiles += !$no_increment;
 

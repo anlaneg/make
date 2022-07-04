@@ -1,5 +1,5 @@
 /* Path conversion for Windows pathnames.
-Copyright (C) 1996-2018 Free Software Foundation, Inc.
+Copyright (C) 1996-2022 Free Software Foundation, Inc.
 This file is part of GNU Make.
 
 GNU Make is free software; you can redistribute it and/or modify it under the
@@ -100,13 +100,17 @@ w32ify(const char *filename, int resolve)
     char *p;
 
     if (resolve)
-        _fullpath(w32_path, filename, sizeof (w32_path));
+      {
+        char *fp = _fullpath (NULL, filename, sizeof (w32_path));
+        strncpy (w32_path, fp, sizeof (w32_path));
+        free (fp);
+      }
     else
-        strncpy(w32_path, filename, sizeof (w32_path));
+      strncpy(w32_path, filename, sizeof (w32_path));
 
     for (p = w32_path; p && *p; p++)
-        if (*p == '\\')
-            *p = '/';
+      if (*p == '\\')
+        *p = '/';
 
     return w32_path;
 }
@@ -177,7 +181,7 @@ convert_path_to_nutc(char *path)
         *pathp = '\0';
 
         /*
-         * Loop through PATH and convert one elemnt of the path at at
+         * Loop through PATH and convert one element of the path at at
          * a time. Single file pathnames will fail this and fall
          * to the logic below loop.
          */

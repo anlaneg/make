@@ -1,6 +1,6 @@
 # This is a -*-Makefile-*-, or close enough
 #
-# Copyright (C) 1997-2018 Free Software Foundation, Inc.
+# Copyright (C) 1997-2022 Free Software Foundation, Inc.
 # This file is part of GNU Make.
 #
 # GNU Make is free software; you can redistribute it and/or modify it under
@@ -16,7 +16,7 @@
 # You should have received a copy of the GNU General Public License along with
 # this program.  If not, see <http://www.gnu.org/licenses/>.
 
-AUTOMAKE_OPTIONS = dist-bzip2 silent-rules std-options subdir-objects nostdinc
+AUTOMAKE_OPTIONS = dist-lzip silent-rules std-options subdir-objects nostdinc
 ACLOCAL_AMFLAGS = -I m4
 
 MAKE_HOST =	@MAKE_HOST@
@@ -35,8 +35,9 @@ make_SRCS =	src/ar.c src/arscan.c src/commands.c src/commands.h \
 		src/hash.c src/hash.h src/implicit.c src/job.c src/job.h \
 		src/load.c src/loadapi.c src/main.c src/makeint.h src/misc.c \
 		src/os.h src/output.c src/output.h src/read.c src/remake.c \
-		src/rule.c src/rule.h src/signame.c src/strcache.c \
-		src/variable.c src/variable.h src/version.c src/vpath.c
+		src/rule.c src/rule.h src/shuffle.h src/shuffle.c \
+		src/signame.c src/strcache.c src/variable.c src/variable.h \
+		src/version.c src/vpath.c
 
 w32_SRCS =	src/w32/pathstuff.c src/w32/w32os.c src/w32/compat/dirent.c \
 		src/w32/compat/posixfcn.c src/w32/include/dirent.h \
@@ -59,16 +60,28 @@ loadavg_SRCS =	lib/getloadavg.c
 make_SOURCES =	$(make_SRCS)
 EXTRA_make_SOURCES = $(amiga_SRCS) $(vms_SRCS)
 
-make_LDADD =	$(LIBOBJS) $(GUILE_LIBS) lib/libgnu.a $(GETLOADAVG_LIBS) \
+if HAVE_GUILE
+  _GUILE_CFLAGS = $(GUILE_CFLAGS)
+  _GUILE_LIBS = $(GUILE_LIBS)
+else
+  _GUILE_CFLAGS =
+  _GUILE_LIBS =
+endif
+
+make_LDADD =	$(LIBOBJS) $(_GUILE_LIBS) lib/libgnu.a $(GETLOADAVG_LIBS) \
 		@LIBINTL@
 
 localedir =	$(datadir)/locale
 
 AM_CPPFLAGS =	-Isrc -I$(top_srcdir)/src -Ilib -I$(top_srcdir)/lib \
-		-DLIBDIR=\"$(libdir)\" -DINCLUDEDIR=\"$(includedir)\" \
-		-DLOCALEDIR=\"$(localedir)\"
+		-DLIBDIR=\"$(libdir)\" -DLOCALEDIR=\"$(localedir)\"
 
-AM_CFLAGS =	$(GUILE_CFLAGS)
+# If prefix is not a standard location, look in prefix as well
+if !KNOWN_PREFIX
+  AM_CPPFLAGS += -DINCLUDEDIR=\"$(includedir)\"
+endif
+
+AM_CFLAGS =	$(_GUILE_CFLAGS)
 
 if WINDOWSENV
   make_SOURCES += $(w32_SRCS)
@@ -94,10 +107,11 @@ m4_FILES =	m4/gnulib-cache.m4
 test_FILES =	tests/run_make_tests tests/run_make_tests.bat \
 		tests/run_make_tests.pl tests/test_driver.pl \
 		tests/config-flags.pm.in tests/config_flags_pm.com \
-		tests/mkshadow tests/jhelp.pl tests/guile.supp tests/README
+		tests/config-flags.pm.W32 \
+		tests/mkshadow tests/thelp.pl tests/guile.supp tests/README
 # test/scripts are added via dist-hook below.
 
-EXTRA_DIST =	ChangeLog README build.sh.in $(man_MANS) \
+EXTRA_DIST =	ChangeLog INSTALL README build.sh build.cfg.in $(man_MANS) \
 		README.customs README.OS2 \
 		README.Amiga SCOPTIONS src/config.ami \
 		README.DOS builddos.bat src/configh.dos \
@@ -106,11 +120,6 @@ EXTRA_DIST =	ChangeLog README build.sh.in $(man_MANS) \
 		vms_export_symbol_test.com \
 		src/gmk-default.scm src/gmk-default.h \
 		$(mk_FILES) $(m4_FILES) $(test_FILES)
-
-
-# This is built during configure, but behind configure's back
-
-DISTCLEANFILES = build.sh
 
 # --------------- Generate the Guile default module content
 
@@ -161,12 +170,12 @@ check-regression: tests/config-flags.pm
 	      *) test -d tests || mkdir tests; \
 		 rm -f srctests; \
 		 if ln -s '$(top_srcdir)/tests' srctests; then \
-		   for f in run_make_tests run_make_tests.pl test_driver.pl scripts jhelp.pl; do \
+		   for f in run_make_tests run_make_tests.pl test_driver.pl scripts thelp.pl; do \
 		     rm -f tests/$$f; ln -s ../srctests/$$f tests; \
 		   done; fi ;; \
 	    esac; \
-	    echo "cd tests && $(PERL) ./run_make_tests.pl -srcdir $(abs_top_srcdir) -make ../make$(EXEEXT) $(MAKETESTFLAGS)"; \
-	    cd tests && $(PERL) ./run_make_tests.pl -srcdir '$(abs_top_srcdir)' -make '../make$(EXEEXT)' $(MAKETESTFLAGS); \
+	    echo "cd tests && $(PERL) $(PERLFLAGS) ./run_make_tests.pl -srcdir $(abs_top_srcdir) -make ../make$(EXEEXT) $(MAKETESTFLAGS)"; \
+	    cd tests && $(PERL) $(PERLFLAGS) ./run_make_tests.pl -srcdir '$(abs_top_srcdir)' -make '../make$(EXEEXT)' $(MAKETESTFLAGS); \
 	  else \
 	    echo "Can't find a working Perl ($(PERL)); the test suite requires Perl."; \
 	  fi; \

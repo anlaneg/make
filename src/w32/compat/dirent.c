@@ -1,5 +1,5 @@
 /* Directory entry code for Window platforms.
-Copyright (C) 1996-2018 Free Software Foundation, Inc.
+Copyright (C) 1996-2022 Free Software Foundation, Inc.
 This file is part of GNU Make.
 
 GNU Make is free software; you can redistribute it and/or modify it under the
@@ -23,7 +23,7 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 #include <stdlib.h>
 #include "dirent.h"
 
-
+#ifndef __MINGW32__
 DIR*
 opendir(const char* pDirName)
 {
@@ -135,6 +135,13 @@ readdir(DIR* pDir)
         pDir->dir_sdReturn.d_ino = (ino_t)-1;
         strcpy(pDir->dir_sdReturn.d_name, wfdFindData.cFileName);
 
+        if (wfdFindData.dwFileAttributes & FILE_ATTRIBUTE_DEVICE)
+          pDir->dir_sdReturn.d_type = DT_CHR;
+        else if (wfdFindData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+          pDir->dir_sdReturn.d_type = DT_DIR;
+        else
+          pDir->dir_sdReturn.d_type = DT_REG;
+
         return &pDir->dir_sdReturn;
 }
 
@@ -186,3 +193,4 @@ seekdir(DIR* pDir, long nPosition)
 
         return;
 }
+#endif  /* !__MINGW32__ */

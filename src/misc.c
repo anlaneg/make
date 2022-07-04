@@ -1,5 +1,5 @@
 /* Miscellaneous generic support functions for GNU Make.
-Copyright (C) 1988-2018 Free Software Foundation, Inc.
+Copyright (C) 1988-2022 Free Software Foundation, Inc.
 This file is part of GNU Make.
 
 GNU Make is free software; you can redistribute it and/or modify it under the
@@ -24,6 +24,7 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 #include <stdarg.h>
 
 #ifdef WINDOWS32
+# include <windows.h>
 # include <io.h>
 #endif
 
@@ -32,6 +33,25 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 #else
 # include <sys/file.h>
 #endif
+
+unsigned int
+make_toui (const char *str, const char **error)
+{
+  char *end;
+  unsigned long val = strtoul (str, &end, 10);
+
+  if (error)
+    {
+      if (str[0] == '\0')
+        *error = "Missing value";
+      else if (*end != '\0')
+        *error = "Invalid value";
+      else
+        *error = NULL;
+    }
+
+  return val;
+}
 
 /* Compare strings *S1 and *S2.
    Return negative if the first is less, positive if it is greater,
@@ -173,25 +193,15 @@ concat (unsigned int num, ...)
 }
 
 
-#ifndef HAVE_STRERROR
-#undef  strerror
-char *
-strerror (int errnum)
+#ifndef HAVE_UNISTD_H
+pid_t getpid ();
+#endif
+
+pid_t make_pid ()
 {
-  extern int errno, sys_nerr;
-#ifndef __DECC
-  extern char *sys_errlist[];
-#endif
-  static char buf[] = "Unknown error 12345678901234567890";
-
-  if (errno < sys_nerr)
-    return sys_errlist[errnum];
-
-  sprintf (buf, _("Unknown error %d"), errnum);
-  return buf;
+  return getpid ();
 }
-#endif
-
+
 /* Like malloc but get fatal error if memory is exhausted.  */
 /* Don't bother if we're using dmalloc; it provides these for us.  */
 
@@ -280,6 +290,30 @@ xstrndup (const char *str, size_t length)
 
   return result;
 }
+
+#ifndef HAVE_MEMRCHR
+void *
+memrchr(const void* str, int ch, size_t len)
+{
+  const char* sp = str;
+  const char* cp = sp;
+
+  if (len == 0)
+    return NULL;
+
+  cp += len - 1;
+
+  while (cp[0] != ch)
+    {
+      if (cp == sp)
+        return NULL;
+      --cp;
+    }
+
+  return (void*)cp;
+}
+#endif
+
 
 
 /* Limited INDEX:
@@ -303,7 +337,8 @@ lindex (const char *s, const char *limit, int c)
 char *
 end_of_token (const char *s)
 {
-  END_OF_TOKEN (s);
+  while (! END_OF_TOKEN (*s))
+    ++s;
   return (char *)s;
 }
 
@@ -425,6 +460,33 @@ free_ns_chain (struct nameseq *ns)
 }
 
 
+#ifdef MAKE_MAINTAINER_MODE
+
+void
+spin (const char* type)
+{
+  char filenm[256];
+  struct stat dummy;
+
+  sprintf (filenm, ".make-spin-%s", type);
+
+  if (stat (filenm, &dummy) == 0)
+    {
+      fprintf (stderr, "SPIN on %s\n", filenm);
+      do
+#ifdef WINDOWS32
+        Sleep (1000);
+#else
+        sleep (1);
+#endif
+      while (stat (filenm, &dummy) == 0);
+    }
+}
+
+#endif
+
+
+
 /* Provide support for temporary files.  */
 
 #ifndef HAVE_STDLIB_H
@@ -433,6 +495,14 @@ int mkstemp (char *template);
 # else
 char *mktemp (char *template);
 # endif
+#endif
+
+#ifndef HAVE_UMASK
+mode_t
+umask (mode_t mask)
+{
+  return 0;
+}
 #endif
 
 FILE *
@@ -444,7 +514,7 @@ get_tmpfile (char **name, const char *template)
 #endif
 
   /* Preserve the current umask, and set a restrictive one for temp files.  */
-  MODE_T mask = UMASK (0077);
+  mode_t mask = umask (0077);
 
 #if defined(HAVE_MKSTEMP) || defined(HAVE_MKTEMP)
 # define TEMPLATE_LEN   strlen (template)
@@ -480,7 +550,7 @@ get_tmpfile (char **name, const char *template)
 # endif
 #endif
 
-  UMASK (mask);
+  umask (mask);
 
   return file;
 }
@@ -495,8 +565,8 @@ strcasecmp (const char *s1, const char *s2)
 {
   while (1)
     {
-      int c1 = (int) *(s1++);
-      int c2 = (int) *(s2++);
+      int c1 = (unsigned char) *(s1++);
+      int c2 = (unsigned char) *(s2++);
 
       if (isalpha (c1))
         c1 = tolower (c1);
@@ -520,8 +590,8 @@ strncasecmp (const char *s1, const char *s2, int n)
 {
   while (n-- > 0)
     {
-      int c1 = (int) *(s1++);
-      int c2 = (int) *(s2++);
+      int c1 = (unsigned char) *(s1++);
+      int c2 = (unsigned char) *(s2++);
 
       if (isalpha (c1))
         c1 = tolower (c1);
@@ -803,5 +873,13 @@ get_path_max (void)
     }
 
   return value;
+}
+#endif
+
+#if !HAVE_MEMPCPY
+void *
+mempcpy (void *dest, const void *src, size_t n)
+{
+  return (char *) memcpy (dest, src, n) + n;
 }
 #endif

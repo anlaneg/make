@@ -1,5 +1,5 @@
 /* config.h -- hand-massaged for Amiga                                  -*-C-*-
-Copyright (C) 1995-2018 Free Software Foundation, Inc.
+Copyright (C) 1995-2022 Free Software Foundation, Inc.
 This file is part of GNU Make.
 
 GNU Make is free software; you can redistribute it and/or modify it under the
@@ -258,11 +258,11 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 /* Define to 1 if you have the stricmp function.  */
 /* #undef HAVE_STRICMP */
 
-/* Define if you have the strerror function.  */
-#define HAVE_STRERROR 1
-
 /* Define if you have the strsignal function.  */
 /* #undef HAVE_STRSIGNAL */
+
+/* Define if you have the strtoll function.  */
+/* #undef HAVE_STRTOLL */
 
 /* Define if you have the wait3 function.  */
 /* #undef HAVE_WAIT3 */
@@ -327,10 +327,10 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 /* Define if you have the sun library (-lsun).  */
 /* #undef HAVE_LIBSUN */
 
-/* Output sync sypport */
+/* Output sync support */
 #define NO_OUTPUT_SYNC
 
-/* Define for Case Insensitve behavior */
+/* Define for Case Insensitive behavior */
 #define HAVE_CASE_INSENSITIVE_FS
 
 /* Build host information. */

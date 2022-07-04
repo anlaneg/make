@@ -26,13 +26,18 @@ GNUWEBDIR ?= $(SRCROOTDIR)/gnu-www
 # Where to put the CVS checkout of the GNU make web repository
 MAKEWEBDIR ?= $(SRCROOTDIR)/make/make-web
 
+# Enable Perl warnings for the test suite
+PERLFLAGS := -w
+
 # We like mondo-warnings!
 # Also force comments to be preserved.  This helps when using ccache, in
 # combination with GCC 7's implicit-fallthrough warning.
-AM_CFLAGS += -C -Wall -Wextra -Werror -Wwrite-strings -Wshadow \
+MAKE_CFLAGS := -C -Wall -Wextra -Werror -Wwrite-strings -Wshadow \
 	-Wdeclaration-after-statement -Wbad-function-cast -Wformat-security \
 	-Wtype-limits -Wunused-but-set-parameter -Wlogical-op -Wpointer-arith \
 	-Wignored-qualifiers -Wformat-signedness -Wduplicated-cond
+
+AM_CFLAGS += $(MAKE_CFLAGS)
 
 # Unfortunately the Guile headers are sometimes broken.  Convince GCC
 # to treat them as system headers so warnings are ignored.
@@ -83,16 +88,6 @@ Basic.mk: Basic.mk.template .dep_segment Makefile
 	  $(word 2,$^) >>$@
 	chmod a-w $@
 
-# Construct build.sh.in
-#
-build.sh.in: build.template Makefile
-	rm -f $@
-	sed -e 's@%objs%@$(patsubst %.o,%.$${OBJEXT},$(filter-out src/remote-%,$(make_OBJECTS)))@g' \
-	  $< > $@
-	chmod a-w+x $@
-
-all: build.sh.in
-
 
 # Use automake to build a dependency list file, for Makebase.mk.
 #
@@ -142,12 +137,13 @@ ChangeLog: .check-git-HEAD
 	    echo "WARNING: $(gl2cl) is not available.  No $@ generated."; \
 	fi
 
-.PHONY: .check-git-HEAD
-.check-git-HEAD:
+.check-git-HEAD: FORCE
 	sha="`git rev-parse HEAD`"; \
-	[ -f '$@' ] && [ "`cat '$@' 2>/dev/null`" = "$$sha" ] \
+	test -f '$@' && [ "`cat '$@' 2>/dev/null`" = "$$sha" ] \
 	    || echo "$$sha" > '$@'
 
+.PHONY: FORCE
+FORCE:;@:
 
 ## ---------------- ##
 ## Updating files.  ##
@@ -173,10 +169,9 @@ update: po-check
 
 # PO archive mirrors --- Be careful; some might not be fully populated!
 #   ftp://ftp.unex.es/pub/gnu-i18n/po/maint/
-#   http://translation.sf.net/maint/
 #   ftp://tiger.informatik.hu-berlin.de/pub/po/maint/
 
-po_wget_flags =	--recursive --level=1 --no-directories --no-check-certificate
+po_wget_flags = --recursive --level=1 --no-directories --no-check-certificate
 po_repo = https://translationproject.org/latest/$(PACKAGE)
 po_sync = translationproject.org::tp/latest/$(PACKAGE)/
 
@@ -192,7 +187,7 @@ do-po-update:
 	$(MAKE) po-check
 
 po-update:
-	[ -d "po" ] && $(MAKE) do-po-update
+	test -d "po" && $(MAKE) do-po-update
 
 # -------------------------- #
 # Updating GNU build files.  #
@@ -215,36 +210,77 @@ target = $(patsubst get-%,%,$@)
 
 config-url = $(git-url)/config.git/plain/$(patsubst get-build-aux/%,%,$@)
 get-build-aux/config.guess get-build-aux/config.sub:
-	@echo $(WGET) $(config-url) -O $(target) \
-	  && $(WGET) $(config-url) -O $(target).t \
+	@echo Retrieving $(target) from $(config-url)
+	$(WGET) $(config-url) -O $(target).t \
 	  && $(move_if_change)
 
 gnulib-url = $(git-url)/gnulib.git/plain/build-aux/$(patsubst get-build-aux/%,%,$@)
 get-build-aux/texinfo.tex:
-	@echo $(WGET) $(gnulib-url) -O $(target) \
-	  && $(WGET) $(gnulib-url) -O $(target).t \
+	@echo Retrieving $(target) from $(gnulib-url)
+	$(WGET) $(gnulib-url) -O $(target).t \
 	  && $(move_if_change)
 
 gnustandards-url = $(cvs-url)/gnustandards/gnustandards/$(patsubst get-doc/%,%,$@)
 get-doc/make-stds.texi get-doc/fdl.texi:
-	@echo $(WGET) $(gnustandards-url) -O $(target) \
-	  && $(WGET) $(gnustandards-url) -O $(target).t \
+	@echo Retrieving $(target) from $(gnustandards-url)
+	$(WGET) $(gnustandards-url) -O $(target).t \
 	  && $(move_if_change)
+
+
+# ---------------------------- #
+# Extra configuration checks.  #
+# ---------------------------- #
+
+# When I released 4.3 somehow the INSTALL file was missing.
+# When I tried to build it again, it was there.  I have no idea what happened
+# but add a new check to be sure it doesn't happen again.
+mk_dist_files = AUTHORS ChangeLog COPYING INSTALL README
+
+dist: mk-distcheck
+
+.PHONY: mk-distcheck
+mk-distcheck: distdir
+	@echo "Checking for extra installed files..."
+	for fn in $(mk_dist_files); do \
+	    test -f '$(distdir)'/"$$fn" \
+		|| { echo "Missing dist file: $$fn"; exit 1; }; \
+	done; true
 
 
 # ---------------------------------- #
 # Alternative configuration checks.  #
 # ---------------------------------- #
 
+CFGCHECK_CONFIGFLAGS =
+CFGCHECK_BUILDFLAGS  =
+CFGCHECK_MAKEFLAGS   = CFLAGS='$(AM_CFLAGS)'
+
+checkcfg.strict-c90:  CFGCHECK_CONFIGFLAGS = CFLAGS='-std=c90 -pedantic'
+checkcfg.strict-c90:  CFGCHECK_MAKEFLAGS   =
+
+checkcfg.no-jobserver:CFGCHECK_CONFIGFLAGS = --disable-job-server
+checkcfg.no-load:     CFGCHECK_CONFIGFLAGS = --disable-load
+checkcfg.no-guile:    CFGCHECK_CONFIGFLAGS = --without-guile
+checkcfg.no-spawn:    CFGCHECK_CONFIGFLAGS = --disable-posix-spawn
+checkcfg.no-sysglob:  CFGCHECK_CONFIGFLAGS = make_cv_sys_gnu_glob=no
+checkcfg.no-loadavg:  CFGCHECK_CONFIGFLAGS = ac_cv_func_getloadavg=no \
+					     ac_cv_have_decl_getloadavg=no \
+					     gl_cv_have_raw_decl_getloadavg=no \
+					     ac_cv_lib_util_getloadavg=no \
+					     ac_cv_lib_getloadavg_getloadavg=no
+checkcfg.no-sync:     CFGCHECK_CONFIGFLAGS = CPPFLAGS=-DNO_OUTPUT_SYNC
+checkcfg.no-archives: CFGCHECK_CONFIGFLAGS = CPPFLAGS=-DNO_ARCHIVES
+
 CONFIG_CHECKS := \
-	checkcfg.--disable-job-server \
-	checkcfg.--disable-load \
-	checkcfg.--without-guile \
-	checkcfg.--disable-posix-spawn \
-	checkcfg.make_cv_sys_gnu_glob^no \
-	checkcfg.ac_cv_func_getloadavg^no+ac_cv_have_decl_getloadavg^no+gl_cv_have_raw_decl_getloadavg^no+ac_cv_lib_util_getloadavg^no+ac_cv_lib_getloadavg_getloadavg^no \
-	checkcfg.CPPFLAGS^-DNO_OUTPUT_SYNC \
-	checkcfg.CPPFLAGS^-DNO_ARCHIVES
+	checkcfg.strict-c90 \
+	checkcfg.no-jobserver \
+	checkcfg.no-load \
+	checkcfg.no-guile \
+	checkcfg.no-spawn \
+	checkcfg.no-sysglob \
+	checkcfg.no-loadavg \
+	checkcfg.no-sync \
+	checkcfg.no-archives
 
 .PHONY: check-alt-config
 check-alt-config: $(CONFIG_CHECKS)
@@ -256,20 +292,20 @@ NR_MAKE = $(MAKE)
 $(CONFIG_CHECKS): checkcfg.%: distdir
 	@echo "Building $@ (output in checkcfg.$*.log)"
 	exec >'checkcfg.$*.log' 2>&1; \
-	   echo "Testing configure with $(subst ^,=,$(subst +, ,$*))"; set -x; \
+	   echo "Testing configure with $(CFGCHECK_CONFIGFLAGS)"; set -x; \
 	   rm -rf $(distdir)/_build \
 	&& mkdir $(distdir)/_build \
 	&& cd $(distdir)/_build \
-	&& ../configure --srcdir=.. $(subst ^,=,$(subst +, ,$*)) \
-		$(AM_DISTCHECK_CONFIGURE_FLAGS) $(DISTCHECK_CONFIGURE_FLAGS)
+	&& ../configure --srcdir=.. $(CFGCHECK_CONFIGFLAGS) \
+	       $(AM_DISTCHECK_CONFIGURE_FLAGS) $(DISTCHECK_CONFIGURE_FLAGS)
 	exec >>'checkcfg.$*.log' 2>&1; set -x; \
 	   cd $(distdir)/_build \
-	&& ./build.sh \
-	&& ./make $(AM_MAKEFLAGS) check \
-	&& ./make $(AM_MAKEFLAGS) clean
+	&& OUTDIR=_bld ../build.sh $(CFGCHECK_BUILD_FLAGS) \
+	&& _bld/make $(AM_MAKEFLAGS) check-local \
+	&& _bld/make $(AM_MAKEFLAGS) clean
 	exec >>'checkcfg.$*.log' 2>&1; set -x; \
 	   cd $(distdir)/_build \
-	&& $(NR_MAKE) $(AM_MAKEFLAGS) CFLAGS='$(AM_CFLAGS)' \
+	&& $(NR_MAKE) $(AM_MAKEFLAGS) $(CFGCHECK_MAKEFLAGS) \
 	&& ./make $(AM_MAKEFLAGS) check \
 	&& ./make $(AM_MAKEFLAGS) clean
 
@@ -284,7 +320,7 @@ checkcfg.basicmk: checkcfg.% : distdir
 	&& mkdir $(distdir)/_build \
 	&& cd $(distdir)/_build \
 	&& ../configure --srcdir=.. \
-		$(AM_DISTCHECK_CONFIGURE_FLAGS) $(DISTCHECK_CONFIGURE_FLAGS)
+	       $(AM_DISTCHECK_CONFIGURE_FLAGS) $(DISTCHECK_CONFIGURE_FLAGS)
 	exec >>'checkcfg.$*.log' 2>&1; set -x; \
 	   cd $(distdir)/_build \
 	&& $(NR_MAKE) $(AM_MAKEFLAGS) -f ../Basic.mk SRCDIR=.. CFLAGS='$(AM_CFLAGS)' \
@@ -295,7 +331,7 @@ checkcfg.basicmk: checkcfg.% : distdir
 	&& rm -rf $(distdir)/_build \
 	&& cd $(distdir) \
 	&& ./configure \
-		$(AM_DISTCHECK_CONFIGURE_FLAGS) $(DISTCHECK_CONFIGURE_FLAGS) \
+	       $(AM_DISTCHECK_CONFIGURE_FLAGS) $(DISTCHECK_CONFIGURE_FLAGS) \
 	&& $(NR_MAKE) $(AM_MAKEFLAGS) -f Basic.mk CFLAGS='$(AM_CFLAGS)' \
 	&& ./make $(AM_MAKEFLAGS) -f Basic.mk check \
 	&& ./make $(AM_MAKEFLAGS) -f Basic.mk clean
@@ -329,7 +365,7 @@ changelog-check:
 po-check:
 	if test -f po/POTFILES.in; then \
 	  grep '^[^#]' po/POTFILES.in | sort > $@-1; \
-	  $(PERL) -wn -e 'if (/\b_\(/) { $$ARGV eq "./src/makeint.h" || print "$$ARGV\n" and close ARGV }' `find . -name '*.[ch]'` | sed 's,^\./,,' | sort > $@-2; \
+	  find [a-z]* -name '*.[ch]' | xargs grep -l '\b_(' | grep -v src/makeint.h | sort > $@-2; \
 	  diff -u $@-1 $@-2 || exit 1; \
 	  rm -f $@-1 $@-2; \
 	fi
@@ -349,16 +385,16 @@ gnuweb-dir = www/server/standards
 
 # Get the GNU make web page boilerplate etc.
 update-makeweb:
-	[ -d '$(MAKEWEBDIR)' ] || mkdir -p '$(MAKEWEBDIR)'
-	[ -d '$(MAKEWEBDIR)'/CVS ] \
+	test -d '$(MAKEWEBDIR)' || mkdir -p '$(MAKEWEBDIR)'
+	test -d '$(MAKEWEBDIR)'/CVS \
 	    && { cd '$(MAKEWEBDIR)' && $(CVS) update; } \
 	    || { mkdir -p '$(dir $(MAKEWEBDIR))' && cd '$(dir $(MAKEWEBDIR))' \
 		 && $(CVS) -d $(makeweb-repo) co -d '$(notdir $(MAKEWEBDIR))' make; }
 
 # Get the GNU web page boilerplate etc.
 update-gnuweb:
-	[ -d '$(GNUWEBDIR)' ] || mkdir -p '$(GNUWEBDIR)'
-	[ -d '$(GNUWEBDIR)/$(gnuweb-dir)'/CVS ] \
+	test -d '$(GNUWEBDIR)' || mkdir -p '$(GNUWEBDIR)'
+	test -d '$(GNUWEBDIR)/$(gnuweb-dir)'/CVS \
 	    && { cd '$(GNUWEBDIR)/$(gnuweb-dir)' && $(CVS) update; } \
 	    || { cd '$(GNUWEBDIR)' && $(CVS) -d $(gnuweb-repo) co '$(gnuweb-dir)'; }
 
@@ -371,8 +407,8 @@ gendocs: update-gnuweb update-makeweb
 	find '$(MAKEWEBDIR)'/manual \( -name CVS -prune \) -o \( -name '[!.]*' -type f -exec rm -f '{}' \; \)
 	cp -r doc/manual '$(MAKEWEBDIR)'
 	@echo 'Status of $(MAKEWEBDIR) repo:' && cd '$(MAKEWEBDIR)' \
-	    && cvs -q -n update | grep -v '^M ' \
-	    && echo '- cvs add <new files>' \
+	    && cvs -q -n update | grep -v '^M '
+	@echo '- cvs add <new files>' \
 	    && echo '- cvs remove <deleted files>' \
 	    && echo '- cvs commit' \
 	    && echo '- cvs tag make-$(subst .,-,$(VERSION))'
@@ -403,15 +439,15 @@ $(COV_BUILD_FILE): $(filter %.c %.h,$(DISTFILES))
 		CFLAGS='$(AM_CFLAGS)'
 	PATH="$${COVERITY_PATH:+$$COVERITY_PATH/bin:}$$PATH"; \
 	    cd '$(distdir)'/_build \
-		&& cov-build --dir cov-int ./build.sh
+		&& cov-build --dir cov-int ../build.sh
 	rm -f '$@'
 	(cd '$(distdir)'/_build && tar czf - cov-int) > '$@'
 
 cov-submit: $(COV_BUILD_FILE)-submitted
 
 $(COV_BUILD_FILE)-submitted: $(COV_BUILD_FILE)
-	@[ -n "$(COVERITY_TOKEN)" ] || { echo 'COVERITY_TOKEN not set'; exit 1; }
-	@[ -n "$(COVERITY_EMAIL)" ] || { echo 'COVERITY_EMAIL not set'; exit 1; }
+	@test -n "$(COVERITY_TOKEN)" || { echo 'COVERITY_TOKEN not set'; exit 1; }
+	@test -n "$(COVERITY_EMAIL)" || { echo 'COVERITY_EMAIL not set'; exit 1; }
 	rm -f '$@'
 	case '$(VERSION)' in \
 	    (*.*.9*) type="daily build"; ext=".$$(date +%Y%m%d)" ;; \
@@ -488,7 +524,7 @@ $(UPLOADS): $(DIST_ARCHIVES) $(DIST_ARCHIVES_SIG) $(DIST_ARCHIVES_DIRECTIVE)
 # Rebuild Makefile.in if this file is modifed.
 Makefile.in: maintMakefile
 
-# Copyright (C) 1997-2018 Free Software Foundation, Inc.
+# Copyright (C) 1997-2022 Free Software Foundation, Inc.
 # This file is part of GNU Make.
 #
 # GNU Make is free software; you can redistribute it and/or modify it under

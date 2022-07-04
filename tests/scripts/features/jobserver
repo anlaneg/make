@@ -25,17 +25,16 @@ all:;@echo $@: "/$(SHOW)/"
 
 # Setting parallelism with the environment
 # Command line should take precedence over the environment
-$extraENV{MAKEFLAGS} = "-j2 $np";
+$ENV{MAKEFLAGS} = "-j2 $np";
 run_make_test(q!
 SHOW = $(patsubst --jobserver-auth=%,--jobserver-auth=<auth>,$(MAKEFLAGS))
 recurse: ; @echo $@: "/$(SHOW)/"; $(MAKE) -f #MAKEFILE# all
 all:;@echo $@: "/$(SHOW)/"
 !,
               '', "recurse: /-j2 --jobserver-auth=<auth> $np/\nall: /-j2 --jobserver-auth=<auth> $np/\n");
-delete $extraENV{MAKEFLAGS};
 
 # Test override of -jN
-$extraENV{MAKEFLAGS} = "-j9 $np";
+$ENV{MAKEFLAGS} = "-j9 $np";
 run_make_test(q!
 SHOW = $(patsubst --jobserver-auth=%,--jobserver-auth=<auth>,$(MAKEFLAGS))
 recurse: ; @echo $@: "/$(SHOW)/"; $(MAKE) -j3 -f #MAKEFILE# recurse2
@@ -43,7 +42,6 @@ recurse2: ; @echo $@: "/$(SHOW)/"; $(MAKE) -f #MAKEFILE# all
 all:;@echo $@: "/$(SHOW)/"
 !,
               "-j2 $np", "recurse: /-j2 --jobserver-auth=<auth> $np/\n#MAKE#[1]: warning: -j3 forced in submake: resetting jobserver mode.\nrecurse2: /-j3 --jobserver-auth=<auth> $np/\nall: /-j3 --jobserver-auth=<auth> $np/\n");
-delete $extraENV{MAKEFLAGS};
 
 # Test override of -jN with -j
 run_make_test(q!
@@ -64,17 +62,18 @@ all:;@echo $@: "/$(SHOW)/"
 unlink('inc.mk');
 
 run_make_test(q!
+.RECIPEPREFIX = >
 -include inc.mk
 recur:
-#	@echo 'MAKEFLAGS = $(MAKEFLAGS)'
-	@rm -f inc.mk
-	@$(MAKE) -j2 -f #MAKEFILE# all
+#> @echo 'MAKEFLAGS = $(MAKEFLAGS)'
+> @rm -f inc.mk
+> @$(MAKE) -j2 -f #MAKEFILE# all
 all:
-#	@echo 'MAKEFLAGS = $(MAKEFLAGS)'
-	@echo $@
+#> @echo 'MAKEFLAGS = $(MAKEFLAGS)'
+> @echo $@
 inc.mk:
-#	@echo 'MAKEFLAGS = $(MAKEFLAGS)'
-	@echo 'FOO = bar' > $@
+#> @echo 'MAKEFLAGS = $(MAKEFLAGS)'
+> @echo 'FOO = bar' > $@
 !,
               "$np -j2", "#MAKE#[1]: warning: -j2 forced in submake: resetting jobserver mode.\nall\n");
 
@@ -102,8 +101,17 @@ default: ; @ #MAKEPATH# -f Makefile2
     rmfiles('Makefile2');
 }
 
-1;
+# Ensure enter/leave directory messages appear before jobserver warnings
 
-### Local Variables:
-### eval: (setq whitespace-action (delq 'auto-cleanup whitespace-action))
-### End:
+run_make_test(q!
+all: ; @$(MAKE) -C . -f #MAKEFILE# recurse -j1
+recurse: ; @echo hi
+!,
+              '-w -j2', "#MAKE#: Entering directory '#PWD#'
+#MAKE#[1]: Entering directory '#PWD#'
+#MAKE#[1]: warning: -j1 forced in submake: resetting jobserver mode.
+hi
+#MAKE#[1]: Leaving directory '#PWD#'
+#MAKE#: Leaving directory '#PWD#'\n");
+
+1;

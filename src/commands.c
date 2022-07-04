@@ -1,5 +1,5 @@
 /* Command processing for GNU Make.
-Copyright (C) 1988-2018 Free Software Foundation, Inc.
+Copyright (C) 1988-2022 Free Software Foundation, Inc.
 This file is part of GNU Make.
 
 GNU Make is free software; you can redistribute it and/or modify it under the
@@ -30,10 +30,6 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 #else
 # define FILE_LIST_SEPARATOR ' '
 #endif
-
-#ifndef HAVE_UNISTD_H
-pid_t getpid ();
-#endif
 
 
 static unsigned long
@@ -58,10 +54,13 @@ dep_hash_cmp (const void *x, const void *y)
   return strcmp (dep_name (dx), dep_name (dy));
 }
 
-/* Set FILE's automatic variables up.  */
+/* Set FILE's automatic variables up.
+ * Use STEM to set $*.
+ * If STEM is 0, then set FILE->STEM and $* to the target name with any
+ * suffix in the .SUFFIXES list stripped off.  */
 
 void
-set_file_variables (struct file *file)
+set_file_variables (struct file *file, const char *stem)
 {
   struct dep *d;
   const char *at, *percent, *star, *less;
@@ -95,7 +94,7 @@ set_file_variables (struct file *file)
     }
 
   /* $* is the stem from an implicit or static pattern rule.  */
-  if (file->stem == 0)
+  if (stem == 0)
     {
       /* In Unix make, $* is set to the target name with
          any suffix in the .SUFFIXES list stripped off for
@@ -118,29 +117,29 @@ set_file_variables (struct file *file)
 
       for (d = enter_file (strcache_add (".SUFFIXES"))->deps; d ; d = d->next)
         {
-          size_t slen = strlen (dep_name (d));
-          if (len > slen && strneq (dep_name (d), name + (len - slen), slen))
+          const char *dn = dep_name (d);
+          size_t slen = strlen (dn);
+          if (len > slen && memcmp (dn, name + (len - slen), slen) == 0)
             {
-              file->stem = strcache_add_len (name, len - slen);
+              file->stem = stem = strcache_add_len (name, len - slen);
               break;
             }
         }
       if (d == 0)
-        file->stem = "";
+        file->stem = stem = "";
     }
-  star = file->stem;
+  star = stem;
 
   /* $< is the first not order-only dependency.  */
   less = "";
   for (d = file->deps; d != 0; d = d->next)
-    if (!d->ignore_mtime)
+    if (!d->ignore_mtime && !d->ignore_automatic_vars && !d->need_2nd_expansion)
       {
-        if (!d->need_2nd_expansion)
-          less = dep_name (d);
+        less = dep_name (d);
         break;
       }
 
-  if (file->cmds == default_file->cmds)
+  if (file->cmds != 0 && file->cmds == default_file->cmds)
     /* This file got its commands from .DEFAULT.
        In this case $< is the same as $@.  */
     less = at;
@@ -178,7 +177,7 @@ set_file_variables (struct file *file)
     bar_len = 0;
     for (d = file->deps; d != 0; d = d->next)
       {
-        if (!d->need_2nd_expansion)
+        if (!d->need_2nd_expansion && !d->ignore_automatic_vars)
           {
             if (d->ignore_mtime)
               bar_len += strlen (dep_name (d)) + 1;
@@ -200,7 +199,7 @@ set_file_variables (struct file *file)
 
     qmark_len = plus_len + 1;   /* Will be this or less.  */
     for (d = file->deps; d != 0; d = d->next)
-      if (! d->ignore_mtime && ! d->need_2nd_expansion)
+      if (! d->ignore_mtime && ! d->need_2nd_expansion && ! d->ignore_automatic_vars)
         {
           const char *c = dep_name (d);
 
@@ -247,7 +246,7 @@ set_file_variables (struct file *file)
 
     for (d = file->deps; d != 0; d = d->next)
       {
-        if (d->need_2nd_expansion)
+        if (d->need_2nd_expansion || d->ignore_automatic_vars)
           continue;
 
         slot = hash_find_slot (&dep_hash, d);
@@ -269,7 +268,7 @@ set_file_variables (struct file *file)
       {
         const char *c;
 
-        if (d->need_2nd_expansion || hash_find_item (&dep_hash, d) != d)
+        if (d->need_2nd_expansion || d->ignore_automatic_vars || hash_find_item (&dep_hash, d) != d)
           continue;
 
         c = dep_name (d);
@@ -465,7 +464,7 @@ execute_file_commands (struct file *file)
 
   initialize_file_variables (file, 0);
 
-  set_file_variables (file);
+  set_file_variables (file, file->stem);
 
   /* If this is a loaded dynamic object, unload it before remaking.
      Some systems don't support overwriting a loaded object.  */
@@ -508,7 +507,7 @@ fatal_error_signal (int sig)
 #ifdef WINDOWS32
   extern HANDLE main_thread;
 
-  /* Windows creates a sperate thread for handling Ctrl+C, so we need
+  /* Windows creates a separate thread for handling Ctrl+C, so we need
      to suspend the main thread, or else we will have race conditions
      when both threads call reap_children.  */
   if (main_thread)
@@ -516,12 +515,12 @@ fatal_error_signal (int sig)
       DWORD susp_count = SuspendThread (main_thread);
 
       if (susp_count != 0)
-        fprintf (stderr, "SuspendThread: suspend count = %ld\n", susp_count);
+        fprintf (stderr, "SuspendThread: suspend count = %lu\n", susp_count);
       else if (susp_count == (DWORD)-1)
         {
           DWORD ierr = GetLastError ();
 
-          fprintf (stderr, "SuspendThread: error %ld: %s\n",
+          fprintf (stderr, "SuspendThread: error %lu: %s\n",
                    ierr, map_windows32_error_to_string (ierr));
         }
     }
@@ -596,7 +595,7 @@ fatal_error_signal (int sig)
 #else
   /* Signal the same code; this time it will really be fatal.  The signal
      will be unblocked when we return and arrive then to kill us.  */
-  if (kill (getpid (), sig) < 0)
+  if (kill (make_pid (), sig) < 0)
     pfatal_with_name ("kill");
 #endif /* not WINDOWS32 */
 #endif /* not Amiga */

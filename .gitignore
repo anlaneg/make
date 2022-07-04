@@ -1,12 +1,20 @@
 # Development artifacts
 ID
 TAGS
+GPATH
+GRTAGS
+GTAGS
+.*cache
 .*gdbinit
 .gdb_history
 .vscode
 *~
 #*
 .#*
+*.diff
+*.patch
+*.orig
+*.rej
 
 # Configure artifacts
 ABOUT-NLS
@@ -15,7 +23,7 @@ Makefile
 Makefile.in
 Basic.mk
 aclocal.m4
-autom4te.cache
+autom4te.cache/
 build-aux/
 config.cache
 config.h
@@ -26,12 +34,14 @@ configure
 /mk/Posix.mk
 stamp-h1
 .dirstamp
+gnulib
 
 # Build artifacts
-.deps
+.deps/
 gmk-default.h
 loadavg
 make
+*.i
 *.o
 *.a
 *.exe
@@ -55,8 +65,7 @@ README
 README.DOS
 README.OS2
 README.W32
-build.sh
-build.sh.in
+build.cfg
 config.ami
 config.h-vms
 config.h.W32

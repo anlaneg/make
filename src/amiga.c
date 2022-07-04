@@ -1,5 +1,5 @@
 /* Running commands on Amiga
-Copyright (C) 1995-2018 Free Software Foundation, Inc.
+Copyright (C) 1995-2022 Free Software Foundation, Inc.
 This file is part of GNU Make.
 
 GNU Make is free software; you can redistribute it and/or modify it under the
@@ -42,7 +42,7 @@ MyExecute (char **argv)
     buffer = AllocMem (len, MEMF_ANY);
 
     if (!buffer)
-      O (fatal, NILF, "MyExecute: Cannot allocate space for calling a command\n");
+      O (fatal, NILF, "MyExecute: Cannot allocate space for calling a command");
 
     ptr = buffer;
 

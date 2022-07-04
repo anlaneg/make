@@ -17,9 +17,11 @@ run_make_test(qq!
 .POSIX:
 all: ; \@$script
 !,
-              '', "#MAKE#: *** [#MAKEFILE#;3: all] Error $err\n", 512);
+              '', "#MAKE#: *** [#MAKEFILE#:3: all] Error $err\n", 512);
 
 # User settings must override .POSIX
+# In the standard .POSIX must be the first thing in the makefile
+# but we relax that rule in GNU make.
 $flags = '-xc';
 $out = `$sh_name $flags '$script' 2>&1`;
 run_make_test(qq!
@@ -47,7 +49,7 @@ $make
               '', $r);
 
 # Make sure that local settings take precedence
-%extraENV = map { $_ => "xx-$_" } keys %POSIX;
+%ENV = (%ENV, map { $_ => "xx-$_" } keys %POSIX);
 $r = join('', map { "$_=xx-$_\n"} sort keys %POSIX);
 run_make_test(undef, '', $r);
 

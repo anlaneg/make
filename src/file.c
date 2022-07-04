@@ -1,5 +1,5 @@
 /* Target file management for GNU Make.
-Copyright (C) 1988-2018 Free Software Foundation, Inc.
+Copyright (C) 1988-2022 Free Software Foundation, Inc.
 This file is part of GNU Make.
 
 GNU Make is free software; you can redistribute it and/or modify it under the
@@ -61,6 +61,9 @@ static struct hash_table files;
 
 /* Whether or not .SECONDARY with no prerequisites was given.  */
 static int all_secondary = 0;
+
+/* Whether or not .NOTINTERMEDIATE with no prerequisites was given.  */
+static int no_intermediates = 0;
 
 /* Access the hash table of all file records.
    lookup_file  given a name, return the struct file * for that name,
@@ -327,13 +330,17 @@ rehash_file (struct file *from_file, const char *to_hname)
 
 #define MERGE(field) to_file->field |= from_file->field
   MERGE (precious);
+  MERGE (loaded);
   MERGE (tried_implicit);
   MERGE (updating);
   MERGE (updated);
   MERGE (is_target);
   MERGE (cmd_target);
   MERGE (phony);
-  MERGE (loaded);
+  /* Don't merge intermediate because this file might be pre-existing */
+  MERGE (is_explicit);
+  MERGE (secondary);
+  MERGE (notintermediate);
   MERGE (ignore_vpath);
 #undef MERGE
 
@@ -386,7 +393,7 @@ remove_intermediates (int sig)
            given on the command line, and it's either a -include makefile or
            it's not precious.  */
         if (f->intermediate && (f->dontcare || !f->precious)
-            && !f->secondary && !f->cmd_target)
+            && !f->secondary && !f->notintermediate && !f->cmd_target)
           {
             int status;
             if (f->update_status == us_none)
@@ -410,7 +417,7 @@ remove_intermediates (int sig)
                   {
                     if (! doneany)
                       DB (DB_BASIC, (_("Removing intermediate files...\n")));
-                    if (!silent_flag)
+                    if (!run_silent)
                       {
                         if (! doneany)
                           {
@@ -424,7 +431,11 @@ remove_intermediates (int sig)
                       }
                   }
                 if (status < 0)
-                  perror_with_name ("unlink: ", f->name);
+                  {
+                    perror_with_name ("\nunlink: ", f->name);
+                    /* Start printing over.  */
+                    doneany = 0;
+                  }
               }
           }
       }
@@ -486,7 +497,6 @@ enter_prereqs (struct dep *deps, const char *stem)
   if (stem)
     {
       const char *pattern = "%";
-      char *buffer = variable_expand ("");
       struct dep *dp = deps, *dl = 0;
 
       while (dp != 0)
@@ -506,14 +516,15 @@ enter_prereqs (struct dep *deps, const char *stem)
               if (stem[0] == '\0')
                 {
                   memmove (percent, percent+1, strlen (percent));
-                  o = variable_buffer_output (buffer, nm, strlen (nm) + 1);
+                  o = variable_buffer_output (variable_buffer, nm,
+                                              strlen (nm) + 1);
                 }
               else
-                o = patsubst_expand_pat (buffer, stem, pattern, nm,
+                o = patsubst_expand_pat (variable_buffer, stem, pattern, nm,
                                          pattern+1, percent+1);
 
               /* If the name expanded to the empty string, ignore it.  */
-              if (buffer[0] == '\0')
+              if (variable_buffer[0] == '\0')
                 {
                   struct dep *df = dp;
                   if (dp == deps)
@@ -525,7 +536,8 @@ enter_prereqs (struct dep *deps, const char *stem)
                 }
 
               /* Save the name.  */
-              dp->name = strcache_add_len (buffer, o - buffer);
+              dp->name = strcache_add_len (variable_buffer,
+                                           o - variable_buffer);
             }
           dp->stem = stem;
           dp->staticpattern = 1;
@@ -545,18 +557,12 @@ enter_prereqs (struct dep *deps, const char *stem)
         d1->file = enter_file (d1->name);
       d1->staticpattern = 0;
       d1->name = 0;
+      if (!stem)
+        /* This file is explicitly mentioned as a prereq.  */
+        d1->file->is_explicit = 1;
     }
 
   return deps;
-}
-
-/* Set the intermediate flag.  */
-
-static void
-set_intermediate (const void *item)
-{
-  struct file *f = (struct file *) item;
-  f->intermediate = 1;
 }
 
 /* Expand and parse each dependency line. */
@@ -565,7 +571,7 @@ expand_deps (struct file *f)
 {
   struct dep *d;
   struct dep **dp;
-  const char *file_stem = f->stem;
+  const char *fstem;
   int initialized = 0;
 
   f->updating = 0;
@@ -578,7 +584,6 @@ expand_deps (struct file *f)
     {
       char *p;
       struct dep *new, *next;
-      char *name = (char *)d->name;
 
       if (! d->name || ! d->need_2nd_expansion)
         {
@@ -588,16 +593,47 @@ expand_deps (struct file *f)
           continue;
         }
 
-      /* If it's from a static pattern rule, convert the patterns into
-         "$*" so they'll expand properly.  */
+      /* If it's from a static pattern rule, convert the initial pattern in
+         each word to "$*" so they'll expand properly.  */
       if (d->staticpattern)
         {
-          char *o = variable_expand ("");
-          o = subst_expand (o, name, "%", "$*", 1, 2, 0);
-          *o = '\0';
-          free (name);
-          d->name = name = xstrdup (variable_buffer);
-          d->staticpattern = 0;
+          const char *cs = d->name;
+          size_t nperc = 0;
+
+          /* Count the number of % in the string.  */
+          while ((cs = strchr (cs, '%')) != NULL)
+            {
+              ++nperc;
+              ++cs;
+            }
+
+          if (nperc)
+            {
+              /* Allocate enough space to replace all % with $*.  */
+              size_t slen = strlen (d->name) + nperc + 1;
+              const char *pcs = d->name;
+              char *name = xmalloc (slen);
+              char *s = name;
+
+              /* Substitute the first % in each word.  */
+              cs = strchr (pcs, '%');
+
+              while (cs)
+                {
+                  memcpy (s, pcs, cs - pcs);
+                  s += cs - pcs;
+                  *(s++) = '$';
+                  *(s++) = '*';
+                  pcs = ++cs;
+
+                  /* Find the first % after the next whitespace.  */
+                  cs = strchr (end_of_token (cs), '%');
+                }
+              strcpy (s, pcs);
+
+              free ((char*)d->name);
+              d->name = name;
+            }
         }
 
       /* We're going to do second expansion so initialize file variables for
@@ -609,21 +645,15 @@ expand_deps (struct file *f)
           initialized = 1;
         }
 
-      if (d->stem != 0)
-        f->stem = d->stem;
-
-      set_file_variables (f);
+      set_file_variables (f, d->stem ? d->stem : f->stem);
 
       p = variable_expand_for_file (d->name, f);
 
-      if (d->stem != 0)
-        f->stem = file_stem;
-
-      /* At this point we don't need the name anymore: free it.  */
-      free (name);
+      /* Free the un-expanded name.  */
+      free ((char*)d->name);
 
       /* Parse the prerequisites and enter them into the file database.  */
-      new = enter_prereqs (split_prereqs (p), d->stem);
+      new = split_prereqs (p);
 
       /* If there were no prereqs here (blank!) then throw this one out.  */
       if (new == 0)
@@ -635,22 +665,98 @@ expand_deps (struct file *f)
         }
 
       /* Add newly parsed prerequisites.  */
+      fstem = d->stem;
       next = d->next;
+      free_dep (d);
       *dp = new;
-      for (dp = &new->next, d = new->next; d != 0; dp = &d->next, d = d->next)
-        ;
+      for (dp = &new, d = new; d != 0; dp = &d->next, d = d->next)
+        {
+          d->file = lookup_file (d->name);
+          if (d->file == 0)
+            d->file = enter_file (d->name);
+          d->name = 0;
+          d->stem = fstem;
+          if (!fstem)
+            /* This file is explicitly mentioned as a prereq.  */
+            d->file->is_explicit = 1;
+        }
       *dp = next;
       d = *dp;
     }
 }
 
-/* Reset the updating flag.  */
+/* Add extra prereqs to the file in question.  */
+
+struct dep *
+expand_extra_prereqs (const struct variable *extra)
+{
+  struct dep *d;
+  struct dep *prereqs = extra ? split_prereqs (variable_expand (extra->value)) : NULL;
+
+  for (d = prereqs; d; d = d->next)
+    {
+      d->file = lookup_file (d->name);
+      if (!d->file)
+        d->file = enter_file (d->name);
+      d->name = NULL;
+      d->ignore_automatic_vars = 1;
+    }
+
+  return prereqs;
+}
+
+/* Perform per-file snap operations. */
 
 static void
-reset_updating (const void *item)
+snap_file (const void *item, void *arg)
 {
-  struct file *f = (struct file *) item;
-  f->updating = 0;
+  struct file *f = (struct file*)item;
+  struct dep *prereqs = NULL;
+
+  /* If we're not doing second expansion then reset updating.  */
+  if (!second_expansion)
+    f->updating = 0;
+
+  /* More specific setting has priority.  */
+
+  /* If .SECONDARY is set with no deps, mark all targets as intermediate,
+     unless the target is a prereq of .NOTINTERMEDIATE.  */
+  if (all_secondary && !f->notintermediate)
+    f->intermediate = 1;
+
+  /* If .NOTINTERMEDIATE is set with no deps, mark all targets as
+     notintermediate, unless the target is a prereq of .INTERMEDIATE.  */
+  if (no_intermediates && !f->intermediate && !f->secondary)
+      f->notintermediate = 1;
+
+  /* If .EXTRA_PREREQS is set, add them as ignored by automatic variables.  */
+  if (f->variables)
+    prereqs = expand_extra_prereqs (lookup_variable_in_set (STRING_SIZE_TUPLE(".EXTRA_PREREQS"), f->variables->set));
+
+  else if (f->is_target)
+    prereqs = copy_dep_chain (arg);
+
+  if (prereqs)
+    {
+      struct dep *d;
+      for (d = prereqs; d; d = d->next)
+        if (streq (f->name, dep_name (d)))
+          /* Skip circular dependencies.  */
+          break;
+
+      if (d)
+        /* We broke early: must have found a circular dependency.  */
+        free_dep_chain (prereqs);
+      else if (!f->deps)
+        f->deps = prereqs;
+      else
+        {
+          d = f->deps;
+          while (d->next)
+            d = d->next;
+          d->next = prereqs;
+        }
+    }
 }
 
 /* For each dependency of each file, make the 'struct dep' point
@@ -700,9 +806,6 @@ snap_deps (void)
             expand_deps (f);
       free (file_slot_0);
     }
-  else
-    /* We're not doing second expansion, so reset updating.  */
-    hash_map (&files, reset_updating);
 
   /* Now manage all the special targets.  */
 
@@ -727,11 +830,32 @@ snap_deps (void)
           f2->mtime_before_update = NONEXISTENT_MTIME;
         }
 
+  for (f = lookup_file (".NOTINTERMEDIATE"); f != 0; f = f->prev)
+    /* Mark .NOTINTERMEDIATE deps as notintermediate files.  */
+    if (f->deps)
+        for (d = f->deps; d != 0; d = d->next)
+          for (f2 = d->file; f2 != 0; f2 = f2->prev)
+            f2->notintermediate = 1;
+    /* .NOTINTERMEDIATE with no deps marks all files as notintermediate.  */
+    else
+      no_intermediates = 1;
+
+  /* The same file connot be both .INTERMEDIATE and .NOTINTERMEDIATE.
+     However, it is possible for a file to be .INTERMEDIATE and also match a
+     .NOTINTERMEDIATE pattern.  In that case, the intermediate file has
+     priority over the notintermediate pattern.  This priority is enforced by
+     pattern_search.  */
+
   for (f = lookup_file (".INTERMEDIATE"); f != 0; f = f->prev)
     /* Mark .INTERMEDIATE deps as intermediate files.  */
     for (d = f->deps; d != 0; d = d->next)
       for (f2 = d->file; f2 != 0; f2 = f2->prev)
-        f2->intermediate = 1;
+        if (f2->notintermediate)
+          OS (fatal, NILF,
+              _("%s cannot be both .NOTINTERMEDIATE and .INTERMEDIATE"),
+              f2->name);
+        else
+          f2->intermediate = 1;
     /* .INTERMEDIATE with no deps does nothing.
        Marking all files as intermediates is useless since the goal targets
        would be deleted after they are built.  */
@@ -741,13 +865,19 @@ snap_deps (void)
     if (f->deps)
       for (d = f->deps; d != 0; d = d->next)
         for (f2 = d->file; f2 != 0; f2 = f2->prev)
+        if (f2->notintermediate)
+          OS (fatal, NILF,
+              _("%s cannot be both .NOTINTERMEDIATE and .SECONDARY"),
+              f2->name);
+        else
           f2->intermediate = f2->secondary = 1;
     /* .SECONDARY with no deps listed marks *all* files that way.  */
     else
-      {
-        all_secondary = 1;
-        hash_map (&files, set_intermediate);
-      }
+      all_secondary = 1;
+
+  if (no_intermediates && all_secondary)
+    O (fatal, NILF,
+       _(".NOTINTERMEDIATE and .SECONDARY are mutually exclusive"));
 
   f = lookup_file (".EXPORT_ALL_VARIABLES");
   if (f != 0 && f->is_target)
@@ -768,7 +898,7 @@ snap_deps (void)
   if (f != 0 && f->is_target)
     {
       if (f->deps == 0)
-        silent_flag = 1;
+        run_silent = 1;
       else
         for (d = f->deps; d != 0; d = d->next)
           for (f2 = d->file; f2 != 0; f2 = f2->prev)
@@ -778,6 +908,15 @@ snap_deps (void)
   f = lookup_file (".NOTPARALLEL");
   if (f != 0 && f->is_target)
     not_parallel = 1;
+
+  {
+    struct dep *prereqs = expand_extra_prereqs (lookup_variable (STRING_SIZE_TUPLE(".EXTRA_PREREQS")));
+
+    /* Perform per-file snap operations.  */
+    hash_map_arg(&files, snap_file, prereqs);
+
+    free_dep_chain (prereqs);
+  }
 
 #ifndef NO_MINUS_C_MINUS_O
   /* If .POSIX was defined, remove OUTPUT_OPTION to comply.  */
@@ -983,6 +1122,10 @@ print_file (const void *item)
     printf (_("#  Implicit/static pattern stem: '%s'\n"), f->stem);
   if (f->intermediate)
     puts (_("#  File is an intermediate prerequisite."));
+  if (f->notintermediate)
+    puts (_("#  File is a prerequisite of .NOTINTERMEDIATE."));
+  if (f->secondary)
+    puts (_("#  File is secondary (prerequisite of .SECONDARY)."));
   if (f->also_make != 0)
     {
       const struct dep *d;

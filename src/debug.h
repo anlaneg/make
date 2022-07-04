@@ -1,5 +1,5 @@
 /* Debugging macros and interface.
-Copyright (C) 1999-2018 Free Software Foundation, Inc.
+Copyright (C) 1999-2022 Free Software Foundation, Inc.
 This file is part of GNU Make.
 
 GNU Make is free software; you can redistribute it and/or modify it under the
@@ -19,6 +19,8 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 #define DB_VERBOSE      (0x002)
 #define DB_JOBS         (0x004)
 #define DB_IMPLICIT     (0x008)
+#define DB_PRINT        (0x010)
+#define DB_WHY          (0x020)
 #define DB_MAKEFILES    (0x100)
 
 #define DB_ALL          (0xfff)

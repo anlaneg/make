@@ -92,7 +92,7 @@ close(MAKEFILE);
 &run_make_with_options($makefile2, "-k", &get_logfile, $error_code);
 
 $answer = "exit 1
-$make_name: *** [$makefile2;9: foo.o] Error 1
+$make_name: *** [$makefile2:9: foo.o] Error 1
 $make_name: Target 'all' not remade because of errors.\n";
 
 &compare_output($answer, &get_logfile(1));
@@ -108,7 +108,7 @@ ifile: no-such-file; @false
                   '-k',
                   "#MAKEFILE#:2: ifile: $ERR_no_such_file
 #MAKE#: *** No rule to make target 'no-such-file', needed by 'ifile'.
-#MAKE#: Failed to remake makefile 'ifile'.
+#MAKEFILE#:2: Failed to remake makefile 'ifile'.
 hi\n",
                   512);
 }

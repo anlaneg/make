@@ -1,5 +1,5 @@
 /* Implementation of pattern-matching file search paths for GNU Make.
-Copyright (C) 1988-2018 Free Software Foundation, Inc.
+Copyright (C) 1988-2022 Free Software Foundation, Inc.
 This file is part of GNU Make.
 
 GNU Make is free software; you can redistribute it and/or modify it under the
@@ -277,7 +277,7 @@ construct_vpath_list (char *pattern, char *dirpath)
          entry, to where the nil-pointer terminator goes.
          Usually this is maxelem - 1.  If not, shrink down.  */
       if (elem < (maxelem - 1))
-        vpath = xrealloc (vpath, (elem+1) * sizeof (const char *));
+        vpath = xrealloc ((void *)vpath, (elem+1) * sizeof (const char *));
 
       /* Put the nil-pointer terminator on the end of the VPATH list.  */
       vpath[elem] = NULL;

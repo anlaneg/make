@@ -1,5 +1,5 @@
 /* Definitions for using variables in GNU Make.
-Copyright (C) 1988-2018 Free Software Foundation, Inc.
+Copyright (C) 1988-2022 Free Software Foundation, Inc.
 This file is part of GNU Make.
 
 GNU Make is free software; you can redistribute it and/or modify it under the
@@ -35,11 +35,20 @@ enum variable_flavor
     f_bogus,            /* Bogus (error) */
     f_simple,           /* Simple definition (:= or ::=) */
     f_recursive,        /* Recursive definition (=) */
+    f_expand,           /* POSIX :::= assignment */
     f_append,           /* Appending definition (+=) */
     f_conditional,      /* Conditional definition (?=) */
     f_shell,            /* Shell assignment (!=) */
     f_append_value      /* Append unexpanded value */
   };
+
+enum variable_export
+{
+    v_default = 0,      /* Decide in target_environment.  */
+    v_export,           /* Export this variable.  */
+    v_noexport,         /* Don't export this variable.  */
+    v_ifset             /* Export it if it has a non-default value.  */
+};
 
 /* Structure that represents one variable definition.
    Each bucket of the hash table is a chain of these,
@@ -73,12 +82,7 @@ struct variable
     enum variable_origin
       origin ENUM_BITFIELD (3); /* Variable origin.  */
     enum variable_export
-      {
-        v_export,               /* Export this variable.  */
-        v_noexport,             /* Don't export this variable.  */
-        v_ifset,                /* Export it if it has a non-default value.  */
-        v_default               /* Decide in target_environment.  */
-      } export ENUM_BITFIELD (2);
+      export ENUM_BITFIELD (2); /* Export control. */
   };
 
 /* Structure that represents a variable set.  */
@@ -126,6 +130,7 @@ char *allocated_variable_expand_for_file (const char *line, struct file *file);
   allocated_variable_expand_for_file (line, (struct file *) 0)
 char *expand_argument (const char *str, const char *end);
 char *variable_expand_string (char *line, const char *string, size_t length);
+char *initialize_variable_output ();
 void install_variable_buffer (char **bufp, size_t *lenp);
 void restore_variable_buffer (char *buf, size_t len);
 

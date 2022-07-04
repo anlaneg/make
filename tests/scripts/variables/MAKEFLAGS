@@ -14,7 +14,7 @@ all: ; @echo $(MAKEFLAGS)
 run_make_test(q!
 all: ; @echo $(MAKEFLAGS)
 !,
-              '--no-print-directory -e -r -R --trace', "#MAKEFILE#:2: target 'all' does not exist
+              '--no-print-directory -e -r -R --trace', "#MAKEFILE#:2: update target 'all' due to: target does not exist
 echo erR --trace --no-print-directory
 erR --trace --no-print-directory");
 
@@ -23,14 +23,15 @@ erR --trace --no-print-directory");
 # Savannah bug #2216
 run_make_test(q!
 MSG = Fails
+.RECIPEPREFIX = >
 all:
-	@echo '$@: MAKEFLAGS=$(MAKEFLAGS)'
-	@MSG=Works $(MAKE) -e -f #MAKEFILE# jump
+> @echo '$@: MAKEFLAGS=$(MAKEFLAGS)'
+> @MSG=Works $(MAKE) -e -f #MAKEFILE# jump
 jump:
-	@echo '$@ $(MSG): MAKEFLAGS=$(MAKEFLAGS)'
-	@$(MAKE) -f #MAKEFILE# print
+> @echo '$@ $(MSG): MAKEFLAGS=$(MAKEFLAGS)'
+> @$(MAKE) -f #MAKEFILE# print
 print:
-	@echo '$@ $(MSG): MAKEFLAGS=$(MAKEFLAGS)'
+> @echo '$@ $(MSG): MAKEFLAGS=$(MAKEFLAGS)'
 .PHONY: all jump print
 !,
                   '--no-print-directory',
@@ -38,8 +39,27 @@ print:
 jump Works: MAKEFLAGS=e --no-print-directory
 print Works: MAKEFLAGS=e --no-print-directory');
 
-1;
+# Ensure MAKEFLAGS updates are handled immediately rather than later
 
-### Local Variables:
-### eval: (setq whitespace-action (delq 'auto-cleanup whitespace-action))
-### End:
+mkdir('foo', 0777);
+mkdir('bar', 0777);
+
+run_make_test(q!
+$(info MAKEFLAGS=$(MAKEFLAGS))
+$(info INCLUDE_DIRS=$(.INCLUDE_DIRS))
+MAKEFLAGS += -Ibar
+$(info MAKEFLAGS=$(MAKEFLAGS))
+$(info INCLUDE_DIRS=$(.INCLUDE_DIRS))
+.PHONY: all
+all: ; @echo 'MAKEFLAGS=$(MAKEFLAGS)' "\$$MAKEFLAGS=$$MAKEFLAGS"
+!,
+              '-I- -Ifoo', 'MAKEFLAGS= -I- -Ifoo
+INCLUDE_DIRS=foo
+MAKEFLAGS= -I- -Ifoo -Ibar
+INCLUDE_DIRS=foo bar
+MAKEFLAGS= -I- -Ifoo -Ibar $MAKEFLAGS= -I- -Ifoo -Ibar');
+
+rmdir('foo');
+rmdir('bar');
+
+1;

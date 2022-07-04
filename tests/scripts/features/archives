@@ -14,8 +14,6 @@ $port_type eq 'W32' and return -1;
 
 # Create some .o files to work with
 if ($osname eq 'VMS') {
-  use Cwd;
-  my $pwd = getcwd;
   # VMS AR needs real object files at this time.
   foreach $afile ('a1', 'a2', 'a3') {
     # Use non-standard extension to prevent implicit rules from recreating
@@ -31,31 +29,30 @@ if ($osname eq 'VMS') {
   utouch(-60, qw(a1.o a2.o a3.o));
 }
 
-my $ar = $CONFIG_FLAGS{AR};
-
-# Fallback if configure did not find AR, such as VMS
-# which does not run configure.
-$ar = 'ar' if $ar eq '';
+# Fallback if configure did not find AR
+my $ar = get_config('AR') || 'ar';
 
 my $redir = '2>&1';
 $redir = '' if $osname eq 'VMS';
 
-my $arflags = 'rv';
+# This is the value from src/default.c
+my $arflags = $osname eq 'aix' ? '-Xany -rv' : '-rv';
 my $arvar = "AR=$ar";
 
 # Newer versions of binutils can be built with --enable-deterministic-archives
 # which forces all timestamps (among other things) to always be 0, defeating
 # GNU make's archive support.  See if ar supports the U option to disable it.
 unlink('libxx.a');
-$_ = `$ar U$arflags libxx.a a1.o $redir`;
+$_ = `$ar ${arflags}U libxx.a a1.o $redir`;
 if ($? == 0) {
-    $arflags = 'Urv';
+    $arflags = "${arflags}U";
     $arvar = "$arvar ARFLAGS=$arflags";
 }
 
 # Some versions of ar print different things on creation.  Find out.
 unlink('libxx.a');
 my $created = `$ar $arflags libxx.a a1.o $redir`;
+$created =~ s/a1\.o/#OBJECT#/g;
 
 # Some versions of ar print different things on add.  Find out.
 my $add = `$ar $arflags libxx.a a2.o $redir`;
@@ -68,7 +65,8 @@ $repl =~ s/a2\.o/#OBJECT#/g;
 unlink('libxx.a');
 
 # Very simple
-my $answer = "$ar $arflags libxx.a a1.o\n$created";
+($_ = $created) =~ s/#OBJECT#/a1.o/g;
+my $answer = "$ar $arflags libxx.a a1.o\n$_";
 if ($port_type eq 'VMS-DCL') {
   $answer = 'library /replace libxx.a a1.o';
 }
@@ -208,7 +206,7 @@ run_make_test(undef, $arvar, "#MAKE#: Nothing to be done for 'default'.\n");
 
 unlink('foo.vhd');
 if ($osname eq 'VMS') {
-  remove_directory_tree("$pwd/artest");
+  remove_directory_tree("$cwdpath/artest");
 } else {
   remove_directory_tree('artest');
 }
@@ -218,7 +216,11 @@ if ($osname eq 'VMS') {
 
 if ($osname ne 'VMS') {
     my $pre = '1234567890123456';
-    my $lib = 'foo.a';
+    my $lib = 'libxx.a';
+    my $cr = $created;
+    $cr =~ s/#OBJECT#/${pre}a/g;
+    my $ad = $add;
+    $ad =~ s/#OBJECT#/${pre}b/g;
 
     run_make_test(qq!
 # Both member names > 16 characters long
@@ -228,7 +230,7 @@ default: $lib(${pre}a) $lib(${pre}b)
 
 $pre%: ; touch \$\@
 !,
-                  $arvar, "touch ${pre}a\n$ar $arflags $lib ${pre}a\n$ar: creating $lib\na - ${pre}a\ntouch ${pre}b\n$ar $arflags $lib ${pre}b\na - ${pre}b\nrm ${pre}a ${pre}b\n");
+                  $arvar, "touch ${pre}a\n$ar $arflags $lib ${pre}a\n${cr}touch ${pre}b\n$ar $arflags $lib ${pre}b\n${ad}rm ${pre}a ${pre}b\n");
 
     # Run it again; nothing should happen
     run_make_test(undef, $arvar, "#MAKE#: Nothing to be done for 'default'.\n");

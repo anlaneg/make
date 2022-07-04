@@ -1,5 +1,5 @@
 /* Miscellaneous global declarations and portability cruft for GNU Make.
-Copyright (C) 1988-2018 Free Software Foundation, Inc.
+Copyright (C) 1988-2022 Free Software Foundation, Inc.
 This file is part of GNU Make.
 
 GNU Make is free software; you can redistribute it and/or modify it under the
@@ -41,6 +41,21 @@ char *alloca ();
 # endif
 #endif
 
+/* Some versions of GCC (e.g., 10.x) set the warn_unused_result attribute on
+   __builtin_alloca.  This causes alloca(0) to fail and is not easily worked
+   around so avoid it via the preprocessor.
+   See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=98055  */
+
+#if defined (__has_builtin)
+# if __has_builtin (__builtin_alloca)
+#   define free_alloca()
+# else
+#  define free_alloca() alloca (0)
+# endif
+#else
+# define free_alloca() alloca (0)
+#endif
+
 /* Disable assert() unless we're a maintainer.
    Some asserts are compute-intensive.  */
 #ifndef MAKE_MAINTAINER_MODE
@@ -67,6 +82,7 @@ char *alloca ();
 # define __NO_STRING_INLINES
 #endif
 
+#include <stddef.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <signal.h>
@@ -114,7 +130,7 @@ extern int errno;
 #endif
 
 /* Some systems define _POSIX_VERSION but are not really POSIX.1.  */
-#if (defined (butterfly) || defined (__arm) || (defined (__mips) && defined (_SYSTYPE_SVR3)) || (defined (sequent) && defined (i386)))
+#if (defined (butterfly) || (defined (__mips) && defined (_SYSTYPE_SVR3)) || (defined (sequent) && defined (i386)))
 # undef POSIX
 #endif
 
@@ -219,19 +235,22 @@ extern int vms_legacy_behavior;
 extern int vms_unix_simulation;
 #endif
 
-#ifndef __attribute__
-/* This feature is available in gcc versions 2.5 and later.  */
-# if __GNUC__ < 2 || (__GNUC__ == 2 && __GNUC_MINOR__ < 5) || __STRICT_ANSI__
-#  define __attribute__(x)
-# endif
+#if !defined(__attribute__) && (__GNUC__ < 2 || (__GNUC__ == 2 && __GNUC_MINOR__ < 5) || __STRICT_ANSI__)
+/* Don't use __attribute__ if it's not supported.  */
+# define ATTRIBUTE(x)
+#else
+# define ATTRIBUTE(x) __attribute__ (x)
+#endif
+
 /* The __-protected variants of 'format' and 'printf' attributes
    are accepted by gcc versions 2.6.4 (effectively 2.7) and later.  */
-# if __GNUC__ < 2 || (__GNUC__ == 2 && __GNUC_MINOR__ < 7)
-#  define __format__ format
-#  define __printf__ printf
-# endif
+#if __GNUC__ < 2 || (__GNUC__ == 2 && __GNUC_MINOR__ < 7)
+# define __format__ format
+# define __printf__ printf
 #endif
-#define UNUSED  __attribute__ ((unused))
+
+#define UNUSED   ATTRIBUTE ((unused))
+#define NORETURN ATTRIBUTE ((noreturn))
 
 #if defined (STDC_HEADERS) || defined (__GNU_LIBRARY__)
 # include <stdlib.h>
@@ -254,8 +273,8 @@ void *malloc (int);
 void *realloc (void *, int);
 void free (void *);
 
-void abort (void) __attribute__ ((noreturn));
-void exit (int) __attribute__ ((noreturn));
+void abort (void) NORETURN;
+void exit (int) NORETURN;
 # endif /* HAVE_STDLIB_H.  */
 
 #endif /* Standard headers.  */
@@ -291,12 +310,9 @@ char *strerror (int errnum);
 char *strsignal (int signum);
 #endif
 
-#if defined(HAVE_UMASK)
-# define UMASK(_m)  umask (_m)
-# define MODE_T     mode_t
-#else
-# define UMASK(_m)  0
-# define MODE_T     int
+#if !defined(HAVE_UMASK)
+typedef int mode_t;
+extern mode_t umask (mode_t);
 #endif
 
 /* ISDIGIT offers the following features:
@@ -329,7 +345,7 @@ char *strsignal (int signum);
 
 #define strneq(a, b, l) (strncmp ((a), (b), (l)) == 0)
 
-#if defined(__GNUC__) || defined(ENUM_BITFIELDS)
+#if defined(ENUM_BITFIELDS) || (defined(__GNUC__) && !defined(__STRICT_ANSI__))
 # define ENUM_BITFIELD(bits)    :bits
 #else
 # define ENUM_BITFIELD(bits)
@@ -391,7 +407,7 @@ extern int unixy_shell;
 #define NONE_SET(_v,_m) (! ANY_SET ((_v),(_m)))
 
 #define MAP_NUL         0x0001
-#define MAP_BLANK       0x0002
+#define MAP_BLANK       0x0002  /* space, TAB */
 #define MAP_NEWLINE     0x0004
 #define MAP_COMMENT     0x0008
 #define MAP_SEMI        0x0010
@@ -445,12 +461,17 @@ extern int unixy_shell;
 
 #define STOP_SET(_v,_m) ANY_SET(stopchar_map[(unsigned char)(_v)],(_m))
 
+/* True if C is whitespace but not newline.  */
 #define ISBLANK(c)      STOP_SET((c),MAP_BLANK)
+/* True if C is whitespace including newlines.  */
 #define ISSPACE(c)      STOP_SET((c),MAP_SPACE)
+/* True if C is nul or whitespace (including newline).  */
+#define END_OF_TOKEN(c) STOP_SET((c),MAP_SPACE|MAP_NUL)
+/* Move S past all whitespace (including newlines).  */
 #define NEXT_TOKEN(s)   while (ISSPACE (*(s))) ++(s)
-#define END_OF_TOKEN(s) while (! STOP_SET (*(s), MAP_SPACE|MAP_NUL)) ++(s)
 
-#if defined(HAVE_SYS_RESOURCE_H) && defined(HAVE_GETRLIMIT) && defined(HAVE_SETRLIMIT)
+/* We can't run setrlimit when using posix_spawn.  */
+#if defined(HAVE_SYS_RESOURCE_H) && defined(HAVE_GETRLIMIT) && defined(HAVE_SETRLIMIT) && !defined(USE_POSIX_SPAWN)
 # define SET_STACK_SIZE
 #endif
 #ifdef SET_STACK_SIZE
@@ -462,11 +483,15 @@ extern struct rlimit stack_limit;
 
 #define NILF ((floc *)0)
 
+/* Number of characters in a string constant.  Does NOT include the \0 byte.  */
 #define CSTRLEN(_s)           (sizeof (_s)-1)
 #define STRING_SIZE_TUPLE(_s) (_s), CSTRLEN(_s)
 
-/* The number of bytes needed to represent the largest integer as a string.  */
-#define INTSTR_LENGTH         CSTRLEN ("18446744073709551616")
+/* The number of bytes needed to represent the largest signed and unsigned
+   integers as a string.
+   Does NOT include space for \0 so be sure to add it if needed.
+   Math suggested by Edward Welbourne <edward.welbourne@qt.io>  */
+#define INTSTR_LENGTH   (53 * sizeof(uintmax_t) / 22 + 3)
 
 #define DEFAULT_TTYNAME "true"
 #ifdef HAVE_TTYNAME
@@ -487,12 +512,12 @@ typedef struct
 
 const char *concat (unsigned int, ...);
 void message (int prefix, size_t length, const char *fmt, ...)
-              __attribute__ ((__format__ (__printf__, 3, 4)));
+              ATTRIBUTE ((__format__ (__printf__, 3, 4)));
 void error (const floc *flocp, size_t length, const char *fmt, ...)
-            __attribute__ ((__format__ (__printf__, 3, 4)));
+            ATTRIBUTE ((__format__ (__printf__, 3, 4)));
 void fatal (const floc *flocp, size_t length, const char *fmt, ...)
-            __attribute__ ((noreturn, __format__ (__printf__, 3, 4)));
-void out_of_memory () __attribute__((noreturn));
+            ATTRIBUTE ((noreturn, __format__ (__printf__, 3, 4)));
+void out_of_memory () NORETURN;
 
 /* When adding macros to this list be sure to update the value of
    XGETTEXT_OPTIONS in the po/Makevars file.  */
@@ -510,10 +535,14 @@ void out_of_memory () __attribute__((noreturn));
 #define ONS(_t,_a,_f,_n,_s)   _t((_a), INTSTR_LENGTH + strlen (_s), \
                                  (_f), (_n), (_s))
 
-void die (int) __attribute__ ((noreturn));
-void pfatal_with_name (const char *) __attribute__ ((noreturn));
+void reset_switches ();
+void decode_env_switches (const char*, size_t line);
+void die (int) NORETURN;
+void pfatal_with_name (const char *) NORETURN;
 void perror_with_name (const char *, const char *);
 #define xstrlen(_s) ((_s)==NULL ? 0 : strlen (_s))
+unsigned int make_toui (const char*, const char**);
+pid_t make_pid ();
 void *xmalloc (size_t);
 void *xcalloc (size_t);
 void *xrealloc (void *, size_t);
@@ -529,8 +558,12 @@ void print_spaces (unsigned int);
 char *find_percent (char *);
 const char *find_percent_cached (const char **);
 FILE *get_tmpfile (char **, const char *);
-ssize_t writebuf (int, const void*, size_t);
-ssize_t readbuf (int, void*, size_t);
+ssize_t writebuf (int, const void *, size_t);
+ssize_t readbuf (int, void *, size_t);
+
+#ifndef HAVE_MEMRCHR
+void *memrchr(const void *, int, size_t);
+#endif
 
 #ifndef NO_ARCHIVES
 int ar_name (const char *);
@@ -597,12 +630,19 @@ typedef int (*load_func_t)(const floc *flocp);
 int load_file (const floc *flocp, const char **filename, int noerror);
 void unload_file (const char *name);
 
+/* Maintainer mode support */
+#ifdef MAKE_MAINTAINER_MODE
+# define SPIN(_s) spin (_s)
+void spin (const char* suffix);
+#else
+# define SPIN(_s)
+#endif
+
 /* We omit these declarations on non-POSIX systems which define _POSIX_VERSION,
    because such systems often declare them in header files anyway.  */
 
 #if !defined (__GNU_LIBRARY__) && !defined (POSIX) && !defined (_POSIX_VERSION) && !defined(WINDOWS32)
 
-long int atol ();
 # ifndef VMS
 long int lseek ();
 # endif
@@ -640,6 +680,11 @@ int strncasecmp (const char *s1, const char *s2, int n);
 # endif
 #endif
 
+#if !HAVE_MEMPCPY
+/* Create our own, in misc.c */
+void *mempcpy (void *dest, const void *src, size_t n);
+#endif
+
 #define OUTPUT_SYNC_NONE    0
 #define OUTPUT_SYNC_LINE    1
 #define OUTPUT_SYNC_TARGET  2
@@ -653,22 +698,26 @@ extern const floc **expanding_var;
 
 extern unsigned short stopchar_map[];
 
-extern int just_print_flag, silent_flag, ignore_errors_flag, keep_going_flag;
+extern int just_print_flag, run_silent, ignore_errors_flag, keep_going_flag;
 extern int print_data_base_flag, question_flag, touch_flag, always_make_flag;
 extern int env_overrides, no_builtin_rules_flag, no_builtin_variables_flag;
-extern int print_version_flag, print_directory_flag, check_symlink_flag;
-extern int warn_undefined_variables_flag, trace_flag, posix_pedantic;
+extern int print_version_flag, print_directory, check_symlink_flag;
+extern int warn_undefined_variables_flag, posix_pedantic;
 extern int not_parallel, second_expansion, clock_skew_detected;
 extern int rebuilding_makefiles, one_shell, output_sync, verify_flag;
+extern unsigned long command_count;
 
 extern const char *default_shell;
 
 /* can we run commands via 'sh -c xxx' or must we use batch files? */
 extern int batch_mode_shell;
 
+#define GNUMAKEFLAGS_NAME       "GNUMAKEFLAGS"
+#define MAKEFLAGS_NAME          "MAKEFLAGS"
+
 /* Resetting the command script introduction prefix character.  */
-#define RECIPEPREFIX_NAME          ".RECIPEPREFIX"
-#define RECIPEPREFIX_DEFAULT       '\t'
+#define RECIPEPREFIX_NAME       ".RECIPEPREFIX"
+#define RECIPEPREFIX_DEFAULT    '\t'
 extern char cmd_prefix;
 
 extern unsigned int job_slots;
@@ -725,14 +774,12 @@ extern unsigned int commands_started;
 
 extern int handling_fatal_signal;
 
-
 #ifndef MIN
 #define MIN(_a,_b) ((_a)<(_b)?(_a):(_b))
 #endif
 #ifndef MAX
 #define MAX(_a,_b) ((_a)>(_b)?(_a):(_b))
 #endif
-
 
 #define MAKE_SUCCESS 0
 #define MAKE_TROUBLE 1

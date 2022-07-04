@@ -1,6 +1,6 @@
 GNU make NEWS                                               -*-indented-text-*-
   History of user-visible changes.
-  10 June 2016
+  20 January 2020
 
 See the end of this file for copyrights and conditions.
 
@@ -9,11 +9,111 @@ which is contained in this distribution as the file doc/make.texi.
 See the README file and the GNU make manual for instructions for
 reporting bugs.
 
-Version 4.2.90 (24 Jun 2016)
+Version 4.3.90 (20 Jan 2020)
 
 A complete list of bugs fixed in this version is available here:
 
-http://sv.gnu.org/bugs/index.php?group=make&report_id=111&fix_release_id=108&set=custom
+https://sv.gnu.org/bugs/index.php?group=make&report_id=111&fix_release_id=109&set=custom
+
+* WARNING: Backward-incompatibility!
+  Previously if --no-print-directory was seen anywhere in the environment or
+  command line it would take precedence over any --print-directory.  Now, the
+  last setting of directory printing options seen will be used, so a command
+  line such as "--no-print-directory -w" _will_ show directory entry/exits.
+
+* WARNING: Backward-incompatibility!
+  Previously the order in which makefiles were remade was not explicitly
+  stated, but it was (roughly) the inverse of the order in which they were
+  processed by make.  In this release, the order in which makefiles are
+  rebuilt is the same order in which make processed them, and this is defined
+  to be true in the GNU make manual.
+
+* WARNING: Backward-incompatibility!
+  Previously only simple (one-letter) options were added to the MAKEFLAGS
+  variable that was visible while parsing makefiles.  Now, all options
+  are available in MAKEFLAGS.
+
+* WARNING: New build requirement
+  GNU make utilizes facilities from GNU Gnulib: Gnulib requires certain C99
+  features in the C compiler and so these features are required by GNU make:
+  https://www.gnu.org/software/gnulib/manual/html_node/C99-features-assumed.html
+  The configure script should verify the compiler has these features.
+
+* New feature: The .NOTINTERMEDIATE special target
+  .NOTINTERMEDIATE Disables intermediate behavior for specific files, for all
+  files built using a pattern, or for the entire makefile.
+  Implementation provided by Dmitry Goncharov <dgoncharov@users.sf.net>
+
+* New feature: The $(let ...) function
+  This function allows user-defined functions to define a set of local
+  variables: values can be assigned to these variables from within the
+  user-defined function and they will not impact global variable assignments.
+  Implementation provided by Jouke Witteveen <j.witteveen@gmail.com>
+
+* New feature: The $(intcmp ...) function
+  This function allows conditional evaluation controlled by a numerical
+  comparison.
+  Implementation provided by Jouke Witteveen <j.witteveen@gmail.com>
+
+* New feature: Improved support for -l / --load-average
+  On systems that provide /proc/loadavg (Linux), GNU make will use it to
+  determine the number of runnable jobs and use this as the current load,
+  avoiding the need for heuristics.
+  Implementation provided by Sven C. Dack <sdack@gmx.com>
+
+* New feature: The --shuffle command line option
+  This option reorders goals and prerequisites to simulate non-determinism
+  that may be seen using parallel build.  Shuffle mode allows a form of "fuzz
+  testing" of parallel builds to verify that all prerequisites are correctly
+  described in the makefile.
+  Implementation provided by Sergei Trofimovich <siarheit@google.com>
+
+* GNU make has sometimes chosen unexpected, and sub-optimal, chains of
+  implicit rules due to the definition of "ought to exist" in the implicit
+  rule search algorithm, which considered any prerequisite mentioned in the
+  makefile as "ought to exist".  This algorithm has been modified to prefer
+  prerequisites mentioned explicitly in the target being built and only if
+  that results in no matching rule, will GNU make consider prerequisites
+  mentioned in other targets as "ought to exist".
+  Implementation provided by Dmitry Goncharov <dgoncharov@users.sf.net>
+
+* If the MAKEFLAGS variable is modified in a makefile, it will be re-parsed
+  immediately rather than after all makefiles have been read.  Note that
+  although all options are parsed immediately, some special effects won't
+  appear until after all makefiles are read.
+
+* The -I option accepts an argument "-" (e.g., "-I-") which means "reset the
+  list of search directories to empty".  Among other things this can be used
+  to prevent GNU make from searching in its default list of directories.
+
+* New debug option "print" will show the recipe to be run, even when silent
+  mode is set, and new debug option "why" will show why a target is rebuilt
+  (which prerequisites caused the target to be considered out of date).
+  Implementation provided by David Boyce <David.S.Boyce@gmail.com>
+
+* The existing --trace option is made equivalent to --debug=print,why
+
+* Target-specific variables can now be marked "unexport".
+
+* Exporting / unexporting target-specific variables is handled correctly, so
+  that the attribute of the most specific variable setting is used.
+
+* Special targets like .POSIX are detected upon definition, ensuring that any
+  change in behavior takes effect immediately, before the next line is parsed.
+
+* A long-standing issue with the directory cache has been resolved: changes
+  made as a side-effect of some other target's recipe are now noticed as
+  expected.
+
+* GNU Make can now be built for MS-Windows using the Tiny C tcc compiler.
+  Port provided by Christian Jullien <eligis@orange.fr>
+
+
+Version 4.3 (19 Jan 2020)
+
+A complete list of bugs fixed in this version is available here:
+
+https://sv.gnu.org/bugs/index.php?group=make&report_id=111&fix_release_id=108&set=custom
 
 * WARNING: Backward-incompatibility!
   Number signs (#) appearing inside a macro reference or function invocation
@@ -36,26 +136,48 @@ http://sv.gnu.org/bugs/index.php?group=make&report_id=111&fix_release_id=108&set
   add a trailing space.
 
 * WARNING: Backward-incompatibility!
-  On Linux, and any other systems that provide a /proc/loadavg with similar
-  syntax, the -l/--load-average option will use the contents of that file to
-  determine how many jobs are running at any given instant, and compare that
-  value to the load value requested.  This allows usage such as "-j -lN" for
-  N-processor systems without fear of overload.
-  Patch provided by Sven C. Dack <sven.c.dack@sky.com>
+  Previously using the .SILENT pseudo-target in a makefile would force all
+  sub-makes to be invoked with the '-s' option, effectively making all
+  sub-makes silent as well.  In this release .SILENT only affects the current
+  invocation of make.  A side-effect of this is that .SILENT will no longer
+  enable the --no-print-directory option, which using -s will do.
 
-* WARNING: Backward-incompatibility!
-  Contrary to the documentation, suffix rules with prerequisites were being
-  treated BOTH as simple targets AND as pattern rules.  Behavior now matches
-  the documentation, and pattern rules are no longer created in this case.
+* NOTE: Deprecated behavior.
+  Contrary to the documentation, suffix rules with prerequisites are being
+  treated BOTH as simple targets AND as pattern rules.  Further, the
+  prerequisites are ignored by the pattern rules.  POSIX specifies that in
+  order to be a suffix rule there can be no prerequisites defined.  In this
+  release if POSIX mode is enabled then rules with prerequisites cannot be
+  suffix rules.  If POSIX mode is not enabled then the previous behavior is
+  preserved (a pattern rule with no extra prerequisites is created) AND a
+  warning about this behavior is generated:
+    warning: ignoring prerequisites on suffix rule definition
+  The POSIX behavior will be adopted as the only behavior in a future release
+  of GNU make so please resolve any warnings.
+
+* New feature: Grouped explicit targets
+  Pattern rules have always had the ability to generate multiple targets with
+  a single invocation of the recipe.  It's now possible to declare that an
+  explicit rule generates multiple targets with a single invocation.  To use
+  this, replace the ":" token with "&:" in the rule.  To detect this feature
+  search for 'grouped-target' in the .FEATURES special variable.
+  Implementation contributed by Kaz Kylheku <kaz@kylheku.com>
+
+* New feature: .EXTRA_PREREQS variable
+  Words in this variable are considered prerequisites of targets but they are
+  not added to any of the automatic variable values when expanding the
+  recipe.  This variable can either be global (applies to all targets) or
+  a target-specific variable.  To detect this feature search for 'extra-prereqs'
+  in the .FEATURES special variable.
+  Implementation contributed by Christof Warlich <cwarlich@gmx.de>
 
 * Makefiles can now specify the '-j' option in their MAKEFLAGS variable and
   this will cause make to enable that parallelism mode.
 
-* GNU make will now use pthread_spawn() on systems where it is available.
-  It will select POSIX_SPAWN_USEVFORK where that is available.  If you prefer
-  to use fork/exec even on systems where pthread_spawn() is present, you can
-  use the --disable-pthread-spawn option to configure.
-  Aron Barath <baratharon@caesar.elte.hu> provided the basic implementation.
+* GNU make will now use posix_spawn() on systems where it is available.
+  If you prefer to use fork/exec even on systems where posix_spawn() is
+  present, you can use the --disable-posix-spawn option to configure.
+  Implementation contributed by Aron Barath <baratharon@caesar.elte.hu>
 
 * Error messages printed when invoking non-existent commands have been cleaned
   up and made consistent.
@@ -93,7 +215,7 @@ Version 4.2.1 (10 Jun 2016)
 
 A complete list of bugs fixed in this version is available here:
 
-http://sv.gnu.org/bugs/index.php?group=make&report_id=111&fix_release_id=107&set=custom
+https://sv.gnu.org/bugs/index.php?group=make&report_id=111&fix_release_id=107&set=custom
 
 This release is a bug-fix release.
 
@@ -102,7 +224,7 @@ Version 4.2 (22 May 2016)
 
 A complete list of bugs fixed in this version is available here:
 
-http://sv.gnu.org/bugs/index.php?group=make&report_id=111&fix_release_id=106&set=custom
+https://sv.gnu.org/bugs/index.php?group=make&report_id=111&fix_release_id=106&set=custom
 
 * New variable: $(.SHELLSTATUS) is set to the exit status of the last != or
   $(shell ...) function invoked in this instance of make.  This will be "0" if
@@ -141,7 +263,7 @@ Version 4.1 (05 Oct 2014)
 
 A complete list of bugs fixed in this version is available here:
 
-http://sv.gnu.org/bugs/index.php?group=make&report_id=111&fix_release_id=105&set=custom
+https://sv.gnu.org/bugs/index.php?group=make&report_id=111&fix_release_id=105&set=custom
 
 * New variables: $(MAKE_TERMOUT) and $(MAKE_TERMERR) are set to non-empty
   values if stdout or stderr, respectively, are believed to be writing to a
@@ -189,7 +311,7 @@ Version 4.0 (09 Oct 2013)
 
 A complete list of bugs fixed in this version is available here:
 
-http://sv.gnu.org/bugs/index.php?group=make&report_id=111&fix_release_id=101&set=custom
+https://sv.gnu.org/bugs/index.php?group=make&report_id=111&fix_release_id=101&set=custom
 
 * WARNING: Backward-incompatibility!
   If .POSIX is specified, then make adheres to the POSIX backslash/newline
@@ -293,7 +415,7 @@ Version 3.82 (28 Jul 2010)
 
 A complete list of bugs fixed in this version is available here:
 
-http://sv.gnu.org/bugs/index.php?group=make&report_id=111&fix_release_id=104&set=custom
+https://sv.gnu.org/bugs/index.php?group=make&report_id=111&fix_release_id=104&set=custom
 
 * Compiling GNU make now requires a conforming ISO C 1989 compiler and
   standard runtime library.
@@ -458,7 +580,7 @@ Version 3.81 (01 Apr 2006)
   might have caused the target to rebuild.  Starting with the _next_
   release of GNU make, '$?' will contain all prerequisites that caused
   the target to be considered out of date.
-  See http://savannah.gnu.org/bugs/?16051
+  See https://savannah.gnu.org/bugs/?16051
 
 * WARNING: Backward-incompatibility!
   GNU make now implements a generic "second expansion" feature on the
@@ -582,7 +704,7 @@ Version 3.81 (01 Apr 2006)
 
 A complete list of bugs fixed in this version is available here:
 
-  http://savannah.gnu.org/bugs/index.php?group=make&report_id=111&fix_release_id=103
+  https://savannah.gnu.org/bugs/index.php?group=make&report_id=111&fix_release_id=103
 
 
 Version 3.80 (03 Oct 2002)
@@ -700,7 +822,7 @@ Version 3.80 (03 Oct 2002)
 
 A complete list of bugs fixed in this version is available here:
 
-  http://savannah.gnu.org/bugs/index.php?group=make&report_id=111&fix_release_id=102
+  https://savannah.gnu.org/bugs/index.php?group=make&report_id=111&fix_release_id=102
 
 
 Version 3.79.1 (23 Jun 2000)
@@ -1604,7 +1726,7 @@ Version 3.05
 (Changes from versions 1 through 3.05 were never recorded.  Sorry.)
 
 -------------------------------------------------------------------------------
-Copyright (C) 1988-2018 Free Software Foundation, Inc.
+Copyright (C) 1988-2022 Free Software Foundation, Inc.
 This file is part of GNU Make.
 
 GNU Make is free software; you can redistribute it and/or modify it under the

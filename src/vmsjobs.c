@@ -1,7 +1,7 @@
 /* --------------- Moved here from job.c ---------------
    This file must be #included in job.c, as it accesses static functions.
 
-Copyright (C) 1996-2018 Free Software Foundation, Inc.
+Copyright (C) 1996-2022 Free Software Foundation, Inc.
 This file is part of GNU Make.
 
 GNU Make is free software; you can redistribute it and/or modify it under the
@@ -104,11 +104,12 @@ static int ctrlYPressed= 0;
    inner mode level AST.
 */
 static int
-vmsHandleChildTerm (struct child *child)
+vmsHandleChildTerm (struct childbase *cbase)
 {
-  int exit_code;
+  struct child *child = (struct child*)cbase;
   struct child *lastc, *c;
   int child_failed;
+  int exit_code;
 
   /* The child efn is 0 when a built-in or null command is executed
      successfully with out actually creating a child.
@@ -330,7 +331,7 @@ posix_parse_sq (struct token_info *token)
 static char *
 posix_parse_dq (struct token_info *token)
 {
-  /* Unix mode:  Any imbedded \" becomes doubled.
+  /* Unix mode:  Any embedded \" becomes doubled.
                  \t is tab, \\, \$ leading character stripped.
                  $ character replaced with \' unless escaped.
   */
@@ -366,7 +367,7 @@ posix_parse_dq (struct token_info *token)
             }
           INC_TOKEN_LEN_OR_BREAK;
         }
-      else if (*p == '$' && isalpha (p[1]))
+      else if (*p == '$' && isalpha ((unsigned char) p[1]))
         {
           /* A symbol we should be able to substitute */
           *q++ = '\'';
@@ -462,7 +463,7 @@ vms_parse_quotes (struct token_info *token)
                 }
               break;
             case '\'':
-              /* Symbol substitution ony in double quotes */
+              /* Symbol substitution only in double quotes */
               if ((p[1] == '\'') && (parse_level[nest] == '"'))
                 {
                   nest++;
@@ -505,7 +506,7 @@ posix_parse_dollar (struct token_info *token)
   *q++ = '\'';
   INC_TOKEN_LEN_OR_RETURN (p);
 
-  while ((isalnum (*p)) || (*p == '_'))
+  while ((isalnum ((unsigned char) *p)) || (*p == '_'))
     {
       *q++ = *p++;
       INC_TOKEN_LEN_OR_BREAK;
@@ -706,7 +707,7 @@ build_vms_cmd (char **cmd_tokens,
             }
 
           /* Optional whitespace */
-          if (isspace (cmd_tokens[cmd_tkn_index][0]))
+          if (isspace ((unsigned char) cmd_tokens[cmd_tkn_index][0]))
             {
               strcpy (&cmd[cmd_len], cmd_tokens[cmd_tkn_index]);
               cmd_len += strlen (cmd_tokens[cmd_tkn_index]);
@@ -788,7 +789,7 @@ build_vms_cmd (char **cmd_tokens,
       if (cmd_tkn_index == append_token)
         {
           free (cmd_tokens[cmd_tkn_index++]);
-          if (isspace (cmd_tokens[cmd_tkn_index][0]))
+          if (isspace ((unsigned char) cmd_tokens[cmd_tkn_index][0]))
             free (cmd_tokens[cmd_tkn_index++]);
           free (cmd_tokens[cmd_tkn_index++]);
         }
@@ -803,8 +804,8 @@ build_vms_cmd (char **cmd_tokens,
   return cmd_dsc;
 }
 
-int
-child_execute_job (struct child *child, char *argv)
+pid_t
+child_execute_job (struct childbase *child, int good_stdin UNUSED, char *argv)
 {
   int i;
 
@@ -841,11 +842,10 @@ child_execute_job (struct child *child, char *argv)
       /* Only a built-in or a null command - Still need to run term AST */
       child->cstatus = VMS_POSIX_EXIT_MASK;
       child->vms_launch_status = SS$_NORMAL;
-      /* TODO what is this "magic number" */
-      child->pid = 270163; /* Special built-in */
       child->efn = 0;
       vmsHandleChildTerm (child);
-      return 1;
+      /* TODO what is this "magic number" */
+      return 270163; /* Special built-in */
     }
 
   sprintf (procname, "GMAKE_%05x", getpid () & 0xfffff);
@@ -987,7 +987,7 @@ child_execute_job (struct child *child, char *argv)
           /* TODO: Should we diagnose if paren_level goes negative? */
           break;
         case '&':
-          if (isalpha (p[1]) && !vms_unix_simulation)
+          if (isalpha ((unsigned char) p[1]) && !vms_unix_simulation)
             {
               /* VMS symbol substitution */
               p = parse_text (&token, 0);
@@ -1061,7 +1061,7 @@ child_execute_job (struct child *child, char *argv)
           UPDATE_TOKEN;
           break;
         case ':':
-          if ((p[1] == 0) || isspace (p[1]))
+          if ((p[1] == 0) || isspace ((unsigned char) p[1]))
             {
               /* Unix Null command - treat as comment until next command */
               unix_echo_cmd = 0;
@@ -1115,7 +1115,7 @@ child_execute_job (struct child *child, char *argv)
           break;
         default:
           /* Skip repetitive whitespace */
-          if (isspace (*p))
+          if (isspace ((unsigned char) *p))
             {
               p = parse_char (&token, 1);
 
@@ -1125,7 +1125,7 @@ child_execute_job (struct child *child, char *argv)
                 token_str[0] = ' ';
               UPDATE_TOKEN;
 
-              while (isspace (*p))
+              while (isspace ((unsigned char) *p))
                 p++;
               if (assignment_hack != 0)
                 assignment_hack++;
@@ -1162,11 +1162,9 @@ child_execute_job (struct child *child, char *argv)
         free (cmd_tokens[cmd_tkn_index++]);
       child->cstatus = VMS_POSIX_EXIT_MASK | (MAKE_TROUBLE << 3);
       child->vms_launch_status = SS$_ABORT;
-      /* TODO what is this "magic number" */
-      child->pid = 270163; /* Special built-in */
       child->efn = 0;
       errno = token.cmd_errno;
-      return 0;
+      return -1;
     }
 
   /* Save any redirection to append file */
@@ -1178,7 +1176,7 @@ child_execute_job (struct child *child, char *argv)
       char * raw_append_file;
       file_token = append_token;
       file_token++;
-      if (isspace (cmd_tokens[file_token][0]))
+      if (isspace ((unsigned char) cmd_tokens[file_token][0]))
         file_token++;
       raw_append_file = vmsify (cmd_tokens[file_token], 0);
       /* VMS DCL needs a trailing dot if null file extension */
@@ -1206,21 +1204,18 @@ child_execute_job (struct child *child, char *argv)
           free (cmd_dsc);
           child->cstatus = VMS_POSIX_EXIT_MASK | (MAKE_TROUBLE << 3);
           child->vms_launch_status = SS$_ABORT;
-          /* TODO what is this "magic number" */
-          child->pid = 270163; /* Special built-in */
           child->efn = 0;
-          return 0;
+          return -1;
         }
 
       /* Only a built-in or a null command - Still need to run term AST */
       free (cmd_dsc);
       child->cstatus = VMS_POSIX_EXIT_MASK;
       child->vms_launch_status = SS$_NORMAL;
-      /* TODO what is this "magic number" */
-      child->pid = 270163; /* Special built-in */
       child->efn = 0;
       vmsHandleChildTerm (child);
-      return 1;
+      /* TODO what is this "magic number" */
+      return 270163; /* Special built-in */
     }
 
   if (cmd_dsc->dsc$w_length > MAX_DCL_LINE_LENGTH)
@@ -1339,7 +1334,7 @@ child_execute_job (struct child *child, char *argv)
                 unlink (child->comname);
               free (child->comname);
             }
-          return 0;
+          return -1;
         }
     }
 
@@ -1465,5 +1460,6 @@ child_execute_job (struct child *child, char *argv)
         }
     }
 
-  return (status & 1);
+  /* TODO what is this "magic number" */
+  return (status & 1) ? 270163 : -1 ;
 }

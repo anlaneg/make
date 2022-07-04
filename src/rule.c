@@ -1,5 +1,5 @@
 /* Pattern and suffix rule internals for GNU Make.
-Copyright (C) 1988-2018 Free Software Foundation, Inc.
+Copyright (C) 1988-2022 Free Software Foundation, Inc.
 This file is part of GNU Make.
 
 GNU Make is free software; you can redistribute it and/or modify it under the
@@ -59,30 +59,99 @@ struct file *suffix_file;
 /* Maximum length of a suffix.  */
 
 static size_t maxsuffix;
+
+/* Return the rule definition: space separated rule targets, followed by
+   either a colon or two colons in the case of a terminal rule, followed by
+   space separated rule prerequisites, followed by a pipe, followed by
+   order-only prerequisites, if present.  */
+
+const char *get_rule_defn (struct rule *r)
+{
+  if (r->_defn == NULL)
+    {
+      unsigned int k;
+      ptrdiff_t len = 8; // Reserve for ":: ", " | " and the null terminator.
+      char *p;
+      const char *sep = "";
+      const struct dep *dep, *ood = 0;
+
+      for (k = 0; k < r->num; ++k)
+        len += r->lens[k] + 1; // Add one for a space.
+
+      for (dep = r->deps; dep; dep = dep->next)
+        len += strlen (dep_name (dep)) + 1; // Add one for a space.
+
+      p = r->_defn = xmalloc (len);
+      for (k = 0; k < r->num; ++k, sep = " ")
+        p = mempcpy (mempcpy (p, sep, strlen (sep)), r->targets[k], r->lens[k]);
+      *p++ = ':';
+      if (r->terminal)
+        *p++ = ':';
+
+      /* Copy all normal dependencies; note any order-only deps.  */
+      for (dep = r->deps; dep; dep = dep->next)
+        if (dep->ignore_mtime == 0)
+          p = mempcpy (mempcpy (p, " ", 1), dep_name (dep),
+                       strlen (dep_name (dep)));
+        else if (ood == 0)
+          ood = dep;
+
+      /* Copy order-only deps, if we have any.  */
+      for (sep = " | "; ood; ood = ood->next, sep = " ")
+        if (ood->ignore_mtime)
+          p = mempcpy (mempcpy (p, sep, strlen (sep)), dep_name (ood),
+                       strlen (dep_name (ood)));
+      *p = '\0';
+      assert (p - r->_defn < len);
+    }
+
+  return r->_defn;
+}
+
 
-/* Compute the maximum dependency length and maximum number of
-   dependencies of all implicit rules.  Also sets the subdir
-   flag for a rule when appropriate, possibly removing the rule
-   completely when appropriate.  */
+/* Compute the maximum dependency length and maximum number of dependencies of
+   all implicit rules.  Also sets the subdir flag for a rule when appropriate,
+   possibly removing the rule completely when appropriate.
+
+   Add any global EXTRA_PREREQS here as well.  */
 
 void
-count_implicit_rule_limits (void)
+snap_implicit_rules (void)
 {
-  char *name;
-  size_t namelen;
+  char *name = NULL;
+  size_t namelen = 0;
   struct rule *rule;
+  struct dep *dep;
+  struct dep *prereqs = expand_extra_prereqs (lookup_variable (STRING_SIZE_TUPLE(".EXTRA_PREREQS")));
+  unsigned int pre_deps = 0;
 
-  num_pattern_rules = max_pattern_targets = max_pattern_deps = 0;
   max_pattern_dep_length = 0;
 
-  name = 0;
-  namelen = 0;
-  rule = pattern_rules;
-  while (rule != 0)
+  for (dep = prereqs; dep; dep = dep->next)
     {
-      unsigned int ndeps = 0;
-      struct dep *dep;
-      struct rule *next = rule->next;
+      const char *d = dep_name (dep);
+      size_t l = strlen (d);
+
+      if (dep->need_2nd_expansion)
+        /* When pattern_search allocates a buffer, allow 5 bytes per each % to
+           substitute each % with $(*F) while avoiding realloc.  */
+        while ((d = strchr (d, '%')) != 0)
+          {
+            l += 4;
+            ++d;
+          }
+
+      if (l > max_pattern_dep_length)
+        max_pattern_dep_length = l;
+      ++pre_deps;
+    }
+
+  num_pattern_rules = max_pattern_targets = max_pattern_deps = 0;
+
+  for (rule = pattern_rules; rule; rule = rule->next)
+    {
+      unsigned int ndeps = pre_deps;
+      struct dep *lastdep = NULL;
 
       ++num_pattern_rules;
 
@@ -99,17 +168,20 @@ count_implicit_rule_limits (void)
           const char *p2;
           if (p == 0)
             p = strrchr (dname, ':');
-          p2 = p != 0 ? strchr (dname, '%') : 0;
+          p2 = p ? strchr (p, '%') : 0;
 #else
           const char *p = strrchr (dname, '/');
-          const char *p2 = p != 0 ? strchr (dname, '%') : 0;
+          const char *p2 = p ? strchr (p, '%') : 0;
 #endif
           ndeps++;
 
           if (len > max_pattern_dep_length)
             max_pattern_dep_length = len;
 
-          if (p != 0 && p2 > p)
+          if (!dep->next)
+            lastdep = dep;
+
+          if (p2)
             {
               /* There is a slash before the % in the dep name.
                  Extract the directory name.  */
@@ -134,13 +206,20 @@ count_implicit_rule_limits (void)
             dep->changed = 0;
         }
 
+      if (prereqs)
+        {
+          if (lastdep)
+            lastdep->next = copy_dep_chain (prereqs);
+          else
+            rule->deps = copy_dep_chain (prereqs);
+        }
+
       if (ndeps > max_pattern_deps)
         max_pattern_deps = ndeps;
-
-      rule = next;
     }
 
   free (name);
+  free_dep_chain (prereqs);
 }
 
 /* Create a pattern rule from a suffix rule.
@@ -253,10 +332,22 @@ convert_to_pattern (void)
           memcpy (rulename + slen, dep_name (d2), s2len + 1);
           f = lookup_file (rulename);
 
-          /* No target, or no commands, or it has deps: it can't be a
-             suffix rule.  */
-          if (f == 0 || f->cmds == 0 || f->deps != 0)
+          /* No target, or no commands: it can't be a suffix rule.  */
+          if (f == 0 || f->cmds == 0)
             continue;
+
+          /* POSIX says that suffix rules can't have prerequisites.
+             In POSIX mode, don't make this a suffix rule.  Previous versions
+             of GNU make did treat this as a suffix rule and ignored the
+             prerequisites, which is bad.  In the future we'll do the same as
+             POSIX, but for now preserve the old behavior and warn about it.  */
+          if (f->deps != 0)
+            {
+              if (posix_pedantic)
+                continue;
+              error (&f->cmds->fileinfo, 0,
+                     _("warning: ignoring prerequisites on suffix rule definition"));
+            }
 
           if (s2len == 2 && rulename[slen] == '.' && rulename[slen + 1] == 'a')
             /* A suffix rule '.X.a:' generates the pattern rule '(%.o): %.X'.
@@ -367,6 +458,7 @@ install_pattern_rule (struct pspec *p, int terminal)
   r->targets = xmalloc (sizeof (const char *));
   r->suffixes = xmalloc (sizeof (const char *));
   r->lens = xmalloc (sizeof (unsigned int));
+  r->_defn = NULL;
 
   r->lens[0] = (unsigned int) strlen (p->target);
   r->targets[0] = p->target;
@@ -408,6 +500,7 @@ freerule (struct rule *rule, struct rule *lastrule)
   free ((void *)rule->targets);
   free ((void *)rule->suffixes);
   free (rule->lens);
+  free ((void *) rule->_defn);
 
   /* We can't free the storage for the commands because there
      are ways that they could be in more than one place:
@@ -457,6 +550,7 @@ create_pattern_rule (const char **targets, const char **target_percents,
   r->targets = targets;
   r->suffixes = target_percents;
   r->lens = xmalloc (n * sizeof (unsigned int));
+  r->_defn = NULL;
 
   for (i = 0; i < n; ++i)
     {
@@ -474,17 +568,8 @@ create_pattern_rule (const char **targets, const char **target_percents,
 static void                     /* Useful to call from gdb.  */
 print_rule (struct rule *r)
 {
-  unsigned int i;
-
-  for (i = 0; i < r->num; ++i)
-    {
-      fputs (r->targets[i], stdout);
-      putchar ((i + 1 == r->num) ? ':' : ' ');
-    }
-  if (r->terminal)
-    putchar (':');
-
-  print_prereqs (r->deps);
+  fputs (get_rule_defn (r), stdout);
+  putchar ('\n');
 
   if (r->cmds != 0)
     print_commands (r->cmds);

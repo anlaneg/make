@@ -1,5 +1,5 @@
 /* Loading dynamic objects for GNU Make.
-Copyright (C) 2012-2018 Free Software Foundation, Inc.
+Copyright (C) 2012-2022 Free Software Foundation, Inc.
 This file is part of GNU Make.
 
 GNU Make is free software; you can redistribute it and/or modify it under the
@@ -195,7 +195,7 @@ load_file (const floc *flocp, const char **ldname, int noerror)
         fp = *ldname;
       else
         ++fp;
-      while (isalnum (*fp) || *fp == '_')
+      while (isalnum ((unsigned char) *fp) || *fp == '_')
         *(p++) = *(fp++);
       strcpy (p, SYMBOL_EXTENSION);
       symname = new;
@@ -253,7 +253,7 @@ load_file (const floc *flocp, const char **ldname UNUSED, int noerror)
 {
   if (! noerror)
     O (fatal, flocp,
-       _("The 'load' operation is not supported on this platform."));
+       _("The 'load' operation is not supported on this platform"));
 
   return 0;
 }
@@ -261,7 +261,7 @@ load_file (const floc *flocp, const char **ldname UNUSED, int noerror)
 void
 unload_file (const char *name UNUSED)
 {
-  O (fatal, NILF, "INTERNAL: Cannot unload when load is not supported!");
+  O (fatal, NILF, "INTERNAL: Cannot unload when load is not supported");
 }
 
 #endif  /* MAKE_LOAD */

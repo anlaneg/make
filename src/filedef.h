@@ -1,5 +1,5 @@
 /* Definition of target file data structures for GNU Make.
-Copyright (C) 1988-2018 Free Software Foundation, Inc.
+Copyright (C) 1988-2022 Free Software Foundation, Inc.
 This file is part of GNU Make.
 
 GNU Make is free software; you can redistribute it and/or modify it under the
@@ -20,6 +20,11 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
    All of these are chained together through 'next'.  */
 
 #include "hash.h"
+
+struct commands;
+struct dep;
+struct variable;
+struct variable_set_list;
 
 struct file
   {
@@ -91,8 +96,11 @@ struct file
     unsigned int phony:1;       /* Nonzero if this is a phony file
                                    i.e., a prerequisite of .PHONY.  */
     unsigned int intermediate:1;/* Nonzero if this is an intermediate file.  */
+    unsigned int is_explicit:1; /* Nonzero if explicitly mentioned. */
     unsigned int secondary:1;   /* Nonzero means remove_intermediates should
                                    not delete it.  */
+    unsigned int notintermediate:1; /* Nonzero means a file is a prereq to
+                                       .NOTINTERMEDIATE.  */
     unsigned int dontcare:1;    /* Nonzero if no complaint is to be made if
                                    this target cannot be remade.  */
     unsigned int ignore_vpath:1;/* Nonzero if we threw out VPATH name.  */
@@ -100,6 +108,8 @@ struct file
                                    pattern-specific variables.  */
     unsigned int no_diag:1;     /* True if the file failed to update and no
                                    diagnostics has been issued (dontcare). */
+    unsigned int was_shuffled:1; /* Did we already shuffle 'deps'? used when
+                                    --shuffle passes through the graph.  */
   };
 
 
@@ -110,6 +120,7 @@ struct file *lookup_file (const char *name);
 struct file *enter_file (const char *name);
 struct dep *split_prereqs (char *prereqstr);
 struct dep *enter_prereqs (struct dep *prereqs, const char *stem);
+struct dep *expand_extra_prereqs (const struct variable *extra);
 void remove_intermediates (int sig);
 void snap_deps (void);
 void rename_file (struct file *file, const char *name);

@@ -1,5 +1,5 @@
 /* POSIX-based operating system interface for GNU Make.
-Copyright (C) 2016-2018 Free Software Foundation, Inc.
+Copyright (C) 2016-2022 Free Software Foundation, Inc.
 This file is part of GNU Make.
 
 GNU Make is free software; you can redistribute it and/or modify it under the
@@ -144,6 +144,11 @@ jobserver_parse_auth (const char *auth)
 
   /* When using pselect() we want the read to be non-blocking.  */
   set_blocking (job_fds[0], 0);
+
+  /* By default we don't send the job pipe FDs to our children.
+     See jobserver_pre_child() and jobserver_post_child().  */
+  fd_noinherit (job_fds[0]);
+  fd_noinherit (job_fds[1]);
 
   return 1;
 }
