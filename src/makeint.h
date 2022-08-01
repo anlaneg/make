@@ -94,16 +94,10 @@ char *alloca ();
    unless <sys/timeb.h> has been included first.  */
 # include <sys/timeb.h>
 #endif
-#if TIME_WITH_SYS_TIME
+#if HAVE_SYS_TIME_H
 # include <sys/time.h>
-# include <time.h>
-#else
-# if HAVE_SYS_TIME_H
-#  include <sys/time.h>
-# else
-#  include <time.h>
-# endif
 #endif
+#include <time.h>
 
 #include <errno.h>
 
@@ -136,10 +130,6 @@ extern int errno;
 
 #if !defined (POSIX) && defined (_AIX) && defined (_POSIX_SOURCE)
 # define POSIX 1
-#endif
-
-#ifndef RETSIGTYPE
-# define RETSIGTYPE     void
 #endif
 
 #ifndef sigmask
@@ -536,7 +526,6 @@ void out_of_memory () NORETURN;
 #define ONS(_t,_a,_f,_n,_s)   _t((_a), INTSTR_LENGTH + strlen (_s), \
                                  (_f), (_n), (_s))
 
-void reset_switches ();
 void decode_env_switches (const char*, size_t line);
 void die (int) NORETURN;
 void pfatal_with_name (const char *) NORETURN;
@@ -607,10 +596,6 @@ const char *vpath_search (const char *file, FILE_TIMESTAMP *mtime_ptr,
 int gpath_search (const char *file, size_t len);
 
 void construct_include_path (const char **arg_dirs);
-
-void user_access (void);
-void make_access (void);
-void child_access (void);
 
 char *strip_whitespace (const char **begpp, const char **endpp);
 
@@ -686,6 +671,11 @@ int strncasecmp (const char *s1, const char *s2, int n);
 void *mempcpy (void *dest, const void *src, size_t n);
 #endif
 
+#if !HAVE_STPCPY
+/* Create our own, in misc.c */
+char *stpcpy (char *dest, const char *src);
+#endif
+
 #define OUTPUT_SYNC_NONE    0
 #define OUTPUT_SYNC_LINE    1
 #define OUTPUT_SYNC_TARGET  2
@@ -721,6 +711,9 @@ extern int batch_mode_shell;
 #define RECIPEPREFIX_DEFAULT    '\t'
 extern char cmd_prefix;
 
+#define JOBSERVER_AUTH_OPT      "jobserver-auth"
+
+extern char *jobserver_auth;
 extern unsigned int job_slots;
 extern double max_load_average;
 

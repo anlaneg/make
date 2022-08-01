@@ -71,9 +71,8 @@ variable_buffer_output (char *ptr, const char *string, size_t length)
     }
 
   /*将string输出到ptr指向的内存里*/
-  memcpy (ptr, string, length);
   /*返回填充后的新起始位置*/
-  return ptr + length;
+  return mempcpy (ptr, string, length);
 }
 
 /* Return a pointer to the beginning of the variable buffer.

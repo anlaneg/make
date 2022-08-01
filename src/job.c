@@ -216,7 +216,7 @@ pid2str (pid_t pid)
   return pidstring;
 }
 
-#ifndef HAVE_GETLOADAVG
+#ifndef HAVE_DECL_GETLOADAVG
 int getloadavg (double loadavg[], int nelem);
 #endif
 
@@ -609,7 +609,7 @@ child_error (struct child *child,
 
 static unsigned int dead_children = 0;
 
-RETSIGTYPE
+void
 child_handler (int sig UNUSED)
 {
   ++dead_children;
@@ -1117,6 +1117,20 @@ reap_children (int block, int err)
 
 /* Free the storage allocated for CHILD.  */
 
+void
+free_childbase (struct childbase *child)
+{
+  if (child->environment != 0)
+    {
+      char **ep = child->environment;
+      while (*ep != 0)
+        free (*ep++);
+      free (child->environment);
+    }
+
+  free (child->cmd_name);
+}
+
 static void
 free_child (struct child *child)
 {
@@ -1149,15 +1163,8 @@ free_child (struct child *child)
       free (child->command_lines);
     }
 
-  if (child->environment != 0)
-    {
-      char **ep = child->environment;
-      while (*ep != 0)
-        free (*ep++);
-      free (child->environment);
-    }
+  free_childbase ((struct childbase*)child);
 
-  free (child->cmd_name);
   free (child);
 }
 
@@ -1423,7 +1430,7 @@ start_job_command (struct child *child)
 #ifndef _AMIGA
   /* Set up the environment for the child.  */
   if (child->environment == 0)
-    child->environment = target_environment (child->file);
+    child->environment = target_environment (child->file, child->recursive);
 #endif
 
 #if !defined(__MSDOS__) && !defined(_AMIGA) && !defined(WINDOWS32)
@@ -2098,7 +2105,6 @@ load_too_high (void)
     }
 
   /* Find the real system load average.  */
-  make_access ();
   if (getloadavg (&load, 1) != 1)
     {
       static int lossage = -1;
@@ -2115,7 +2121,6 @@ load_too_high (void)
       lossage = errno;
       load = 0;
     }
-  user_access ();
 
   /* If we're in a new second zero the counter and correct the backlog
      value.  Only keep the backlog for one extra second; after that it's 0.  */
@@ -2540,9 +2545,6 @@ exec_command (char **argv, char **envp)
 #else  /* !WINDOWS32 */
 
   pid_t pid = -1;
-
-  /* Be the user, permanently.  */
-  child_access ();
 
 # ifdef __EMX__
   /* Run the program.  */
@@ -3413,9 +3415,10 @@ construct_command_argv_internal (char *line, char **restp, const char *shell,
       }
     *(ap++) = ' ';
     if (shellflags)
-      memcpy (ap, shellflags, sflags_len);
-    ap += sflags_len;
-    *(ap++) = ' ';
+      {
+        ap = mempcpy (ap, shellflags, sflags_len);
+        *(ap++) = ' ';
+      }
 #ifdef WINDOWS32
     command_ptr = ap;
 #endif
@@ -3460,8 +3463,7 @@ construct_command_argv_internal (char *line, char **restp, const char *shell,
         else if (unixy_shell && strneq (p, "...", 3))
           {
             /* The case of '...' wildcard again.  */
-            strcpy (ap, "\\.\\.\\");
-            ap += 5;
+            ap = stpcpy (ap, "\\.\\.\\");
             p  += 2;
           }
 #endif

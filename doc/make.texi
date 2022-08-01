@@ -1703,18 +1703,16 @@ this second expansion to occur, the special target
 @code{.SECONDEXPANSION} must be defined before the first prerequisite
 list that makes use of this feature.
 
-If that special target is defined then in between the two phases
-mentioned above, right at the end of the read-in phase, all the
-prerequisites of the targets defined after the special target are
-expanded a @emph{second time}.  In most circumstances this secondary
-expansion will have no effect, since all variable and function
-references will have been expanded during the initial parsing of the
-makefiles.  In order to take advantage of the secondary expansion
-phase of the parser, then, it's necessary to @emph{escape} the
-variable or function reference in the makefile.  In this case the
-first expansion merely un-escapes the reference but doesn't expand it,
-and expansion is left to the secondary expansion phase.  For example,
-consider this makefile:
+If @code{.SECONDEXPANSION} is defined then when GNU @code{make} needs to check
+the prerequisites of a target, the prerequisites are expanded a @emph{second
+time}.  In most circumstances this secondary expansion will have no effect,
+since all variable and function references will have been expanded during the
+initial parsing of the makefiles.  In order to take advantage of the secondary
+expansion phase of the parser, then, it's necessary to @emph{escape} the
+variable or function reference in the makefile.  In this case the first
+expansion merely un-escapes the reference but doesn't expand it, and expansion
+is left to the secondary expansion phase.  For example, consider this
+makefile:
 
 @example
 .SECONDEXPANSION:
@@ -8615,6 +8613,23 @@ sets @code{files} to the expansion of @samp{*.c}.  Unless @code{make} is
 using a very strange shell, this has the same result as
 @w{@samp{$(wildcard *.c)}} (as long as at least one @samp{.c} file
 exists).@refill
+
+All variables that are marked as @code{export} will also be passed to the
+shell started by the @code{shell} function.  It is possible to create a
+variable expansion loop: consider this @file{makefile}:
+
+@example
+export HI = $(shell echo hi)
+all: ; @@echo $$HI
+@end example
+
+When @code{make} wants to run the recipe it must add the variable @var{HI} to
+the environment; to do so it must be expanded.  The value of this variable
+requires an invocation of the @code{shell} function, and to invoke it we must
+create its environment.  Since @var{HI} is exported, we need to expand it to
+create its environment.  And so on.  In this obscure case @code{make} will not
+add recursively-expanded variables to the @code{shell} environment rather than
+fail with an error.
 
 @node Guile Function,  , Shell Function, Functions
 @section The @code{guile} Function

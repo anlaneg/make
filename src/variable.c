@@ -19,10 +19,12 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 #include <assert.h>
 
 #include "filedef.h"
+#include "debug.h"
 #include "dep.h"
 #include "job.h"
 #include "commands.h"
 #include "variable.h"
+#include "os.h"
 #include "rule.h"
 #ifdef WINDOWS32
 #include "pathstuff.h"
@@ -385,7 +387,6 @@ lookup_special_var (struct variable *var)
 {
   static unsigned long last_changenum = 0;
 
-
   /* This one actually turns out to be very hard, due to the way the parser
      records targets.  The way it works is that target information is collected
      internally until make knows the target is completely specified.  Only when
@@ -441,8 +442,7 @@ lookup_special_var (struct variable *var)
                 p = &var->value[off];
               }
 
-            memcpy (p, v->name, l);
-            p += l;
+            p = mempcpy (p, v->name, l);
             *(p++) = ' ';
           }
       *(p-1) = '\0';
@@ -1029,21 +1029,30 @@ should_export (const struct variable *v)
 
 /* Create a new environment for FILE's commands.
    If FILE is nil, this is for the 'shell' function.
-   The child's MAKELEVEL variable is incremented.  */
+   The child's MAKELEVEL variable is incremented.
+   If recursive is true then we're running a recursive make, else not.  */
 
 char **
-target_environment (struct file *file)
+target_environment (struct file *file, int recursive)
 {
   struct variable_set_list *set_list;
   struct variable_set_list *s;
   struct hash_table table;
   struct variable **v_slot;
   struct variable **v_end;
-  struct variable makelevel_key;
   char **result_0;
   char **result;
+  const char *invalid = NULL;
   /* If we got no value from the environment then never add the default.  */
   int added_SHELL = shell_var.value == 0;
+  int found_makelevel = 0;
+  int found_mflags = 0;
+  int found_makeflags = 0;
+
+  /* We need to update makeflags if (a) we're not recurive, (b) jobserver_auth
+     is enabled, and (c) we need to add invalidation.  */
+  if (!recursive && jobserver_auth)
+    invalid = jobserver_get_invalid_auth ();
 
   if (file == 0)
     set_list = current_variable_set_list;
@@ -1078,16 +1087,10 @@ target_environment (struct file *file)
                   hash_insert_at (&table, v, evslot);
               }
             else if ((*evslot)->export == v_default)
-              {
-                /* We already have a variable but we don't know its status.  */
-                (*evslot)->export = v->export;
-              }
+              /* We already have a variable but we don't know its status.  */
+              (*evslot)->export = v->export;
           }
     }
-
-  makelevel_key.name = (char *)MAKELEVEL_NAME;
-  makelevel_key.length = MAKELEVEL_LENGTH;
-  hash_delete (&table, &makelevel_key);
 
   result = result_0 = xmalloc ((table.ht_fill + 3) * sizeof (char *));
 
@@ -1097,48 +1100,125 @@ target_environment (struct file *file)
     if (! HASH_VACANT (*v_slot))
       {
         struct variable *v = *v_slot;
+        char *value = v->value;
+        char *cp = NULL;
 
         /* This might be here because it was a target-specific variable that
            we didn't know the status of when we added it.  */
         if (! should_export (v))
           continue;
 
-        /* If this is the SHELL variable remember we already added it.  */
-        if (!added_SHELL && streq (v->name, "SHELL"))
-          added_SHELL = 1;
-
         /* If V is recursively expanded and didn't come from the environment,
            expand its value.  If it came from the environment, it should
            go back into the environment unchanged.  */
-        if (v->recursive
-            && v->origin != o_env && v->origin != o_env_override)
+        if (v->recursive && v->origin != o_env && v->origin != o_env_override)
           {
-            char *value = recursively_expand_for_file (v, file);
-#ifdef WINDOWS32
-            if (strcmp (v->name, "Path") == 0 ||
-                strcmp (v->name, "PATH") == 0)
-              convert_Path_to_windows32 (value, ';');
-#endif
-            *result++ = xstrdup (concat (3, v->name, "=", value));
-            free (value);
+            /* If V is being recursively expanded and this is for a shell
+               function, just skip it.  */
+            if (v->expanding && file == NULL)
+              {
+                DB (DB_VERBOSE, (_("%s:%lu: Skipping export of %s to shell function due to recursive expansion"),
+                                 v->fileinfo.filenm, v->fileinfo.lineno, v->name));
+                continue;
+              }
+
+            value = cp = recursively_expand_for_file (v, file);
           }
-        else
+
+        /* If this is the SHELL variable remember we already added it.  */
+        if (!added_SHELL && streq (v->name, "SHELL"))
           {
-#ifdef WINDOWS32
-            if (strcmp (v->name, "Path") == 0 ||
-                strcmp (v->name, "PATH") == 0)
-              convert_Path_to_windows32 (v->value, ';');
-#endif
-            *result++ = xstrdup (concat (3, v->name, "=", v->value));
+            added_SHELL = 1;
+            goto setit;
           }
+
+        /* If this is MAKELEVEL, update it.  */
+        if (!found_makelevel && streq (v->name, MAKELEVEL_NAME))
+          {
+            char val[INTSTR_LENGTH + 1];
+            sprintf (val, "%u", makelevel + 1);
+            free (cp);
+            value = cp = xstrdup (val);
+            found_makelevel = 1;
+            goto setit;
+          }
+
+        /* If we need to reset jobserver, check for MAKEFLAGS / MFLAGS.  */
+        if (invalid)
+          {
+            if (!found_makeflags && streq (v->name, MAKEFLAGS_NAME))
+              {
+                char *mf;
+                char *vars;
+                found_makeflags = 1;
+
+                if (!strstr (value, " --" JOBSERVER_AUTH_OPT "="))
+                  goto setit;
+
+                /* The invalid option must come before variable overrides.  */
+                vars = strstr (value, " -- ");
+                if (!vars)
+                  mf = xstrdup (concat (2, value, invalid));
+                else
+                  {
+                    size_t lf = vars - value;
+                    size_t li = strlen (invalid);
+                    mf = xmalloc (strlen (value) + li + 1);
+                    strcpy (mempcpy (mempcpy (mf, value, lf), invalid, li),
+                            vars);
+                  }
+                free (cp);
+                value = cp = mf;
+                if (found_mflags)
+                  invalid = NULL;
+                goto setit;
+              }
+
+            if (!found_mflags && streq (v->name, "MFLAGS"))
+              {
+                const char *mf;
+                found_mflags = 1;
+
+                if (!strstr (value, " --" JOBSERVER_AUTH_OPT "="))
+                  goto setit;
+
+                if (v->origin != o_env)
+                  goto setit;
+                mf = concat (2, value, invalid);
+                free (cp);
+                value = cp = xstrdup (mf);
+                if (found_makeflags)
+                  invalid = NULL;
+                goto setit;
+              }
+          }
+
+#ifdef WINDOWS32
+        if (streq (v->name, "Path") || streq (v->name, "PATH"))
+          {
+            if (!cp)
+              cp = xstrdup (value);
+            value = convert_Path_to_windows32 (cp, ';');
+            goto setit;
+          }
+#endif
+
+      setit:
+        *result++ = xstrdup (concat (3, v->name, "=", value));
+        free (cp);
       }
 
   if (!added_SHELL)
     *result++ = xstrdup (concat (3, shell_var.name, "=", shell_var.value));
 
-  *result = xmalloc (100);
-  sprintf (*result, "%s=%u", MAKELEVEL_NAME, makelevel + 1);
-  *++result = 0;
+  if (!found_makelevel)
+    {
+      char val[MAKELEVEL_LENGTH + 1 + INTSTR_LENGTH + 1];
+      sprintf (val, "%s=%u", MAKELEVEL_NAME, makelevel + 1);
+      *result++ = xstrdup (val);
+    }
+
+  *result = NULL;
 
   hash_free (&table, 0);
 
@@ -1156,10 +1236,7 @@ set_special_var (struct variable *var)
       cmd_prefix = var->value[0]=='\0' ? RECIPEPREFIX_DEFAULT : var->value[0];
     }
   else if (streq (var->name, MAKEFLAGS_NAME))
-    {
-      reset_switches ();
-      decode_env_switches (STRING_SIZE_TUPLE(MAKEFLAGS_NAME));
-    }
+    decode_env_switches (STRING_SIZE_TUPLE(MAKEFLAGS_NAME));
 
   return var;
 }
@@ -1876,7 +1953,7 @@ print_target_variables (const struct file *file)
       size_t l = strlen (file->name);
       char *t = alloca (l + 3);
 
-      strcpy (t, file->name);
+      memcpy (t, file->name, l);
       t[l] = ':';
       t[l+1] = ' ';
       t[l+2] = '\0';
@@ -1887,21 +1964,20 @@ print_target_variables (const struct file *file)
 
 #ifdef WINDOWS32
 void
-sync_Path_environment (void)
+sync_Path_environment ()
 {
-  char *path = allocated_variable_expand ("$(PATH)");
   static char *environ_path = NULL;
+  char *oldpath = environ_path;
+  char *path = allocated_variable_expand ("PATH=$(PATH)");
 
   if (!path)
     return;
 
-  /* If done this before, free the previous entry before allocating new one.  */
-  free (environ_path);
-
-  /* Create something WINDOWS32 world can grok.  */
+  /* Convert PATH into something WINDOWS32 world can grok.  */
   convert_Path_to_windows32 (path, ';');
-  environ_path = xstrdup (concat (3, "PATH", "=", path));
+
+  environ_path = path;
   putenv (environ_path);
-  free (path);
+  free (oldpath);
 }
 #endif

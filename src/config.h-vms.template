@@ -65,9 +65,6 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 /* Define for DGUX with <sys/dg_sys_info.h>.  */
 /* #undef DGUX */
 
-/* Define to 1 if the 'getloadavg' function needs to be run setuid or setgid.  */
-/* #undef GETLOADAVG_PRIVILEGED */
-
 /* Define to 'unsigned long' or 'unsigned long long'
    if <inttypes.h> doesn't define.  */
 #define uintmax_t unsigned long
@@ -81,14 +78,14 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 /* Define to 1 if you have <alloca.h> and it should be used (not on Ultrix).  */
 /* #undef HAVE_ALLOCA_H */
 
+/* Define to 1 if you have the declaration of 'getloadavg'. */
+/* #undef HAVE_DECL_GETLOADAVG */
+
 /* Define to 1 if you have the fdopen function.  */
 #define HAVE_FDOPEN 1
 
 /* Define to 1 if your system has a working fnmatch function.  */
 /* #undef HAVE_FNMATCH */
-
-/* Define to 1 if your system has its own 'getloadavg' function.  */
-/* #undef HAVE_GETLOADAVG */
 
 /* Define to 1 if you have the getmntent function.  */
 /* #undef HAVE_GETMNTENT */
@@ -172,14 +169,6 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 /* Define to 1 if you need to in order for stat and other things to work.  */
 /* #undef _POSIX_SOURCE */
 
-/* Define as the return type of signal handlers (int or void).  */
-#define RETSIGTYPE void
-
-/* Define to 1 if the setvbuf function takes the buffering type as its second
-   argument and the buffer pointer as the third, as on System V
-   before release 3.  */
-/* #undef SETVBUF_REVERSED */
-
 /* If using the C implementation of alloca, define if you know the
    direction of stack growth for your system; otherwise it will be
    automatically deduced at run-time.
@@ -215,6 +204,18 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 /* Name of this package (needed by automake) */
 #define PACKAGE "%PACKAGE%"
+
+/* Define to the address where bug reports for this package should be sent. */
+#define PACKAGE_BUGREPORT "bug-make@gnu.org"
+
+/* Define to the full name of this package. */
+#define PACKAGE_NAME "GNU make"
+
+/* Define to the home page for this package. */
+#define PACKAGE_URL "https://www.gnu.org/software/make/"
+
+/* Define to the version of this package. */
+#define PACKAGE_VERSION "%VERSION%"
 
 /* Version of this package (needed by automake) */
 #define VERSION "%VERSION%"

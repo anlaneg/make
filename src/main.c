@@ -234,7 +234,7 @@ static const int inf_jobs = 0;
 
 /* Authorization for the jobserver.  */
 
-static char *jobserver_auth = NULL;
+char *jobserver_auth = NULL;
 
 /* Shuffle mode for goals and prerequisites.  */
 
@@ -243,7 +243,7 @@ static char *shuffle_mode = NULL;
 /* Handle for the mutex used on Windows to synchronize output of our
    children under -O.  */
 
-char *sync_mutex = NULL;
+static char *sync_mutex = NULL;
 
 /* Maximum load average at which multiple jobs will be run.
    Negative values mean unlimited, while zero means limit to
@@ -484,7 +484,7 @@ static const struct command_switch switches[] =
 
     /* These are long-style options.  */
     { CHAR_MAX+1, strlist, &db_flags, 1, 1, 0, "basic", 0, "debug" },
-    { CHAR_MAX+2, string, &jobserver_auth, 1, 1, 0, 0, 0, "jobserver-auth" },
+    { CHAR_MAX+2, string, &jobserver_auth, 1, 1, 0, 0, 0, JOBSERVER_AUTH_OPT },
     { CHAR_MAX+3, flag, &trace_flag, 1, 1, 0, 0, 0, "trace" },
     { CHAR_MAX+4, flag_off, &print_directory_flag, 1, 1, 0, 0,
       &default_print_directory_flag, "no-print-directory" },
@@ -625,7 +625,7 @@ int fatal_signal_mask;
 # if !defined HAVE_SIGACTION
 #  define bsd_signal signal
 # else
-typedef RETSIGTYPE (*bsd_signal_ret_t) (int);
+typedef void (*bsd_signal_ret_t) (int);
 
 static bsd_signal_ret_t
 bsd_signal (int sig, bsd_signal_ret_t func)
@@ -746,7 +746,7 @@ expand_command_line_file (const char *name)
 /* Toggle -d on receipt of SIGUSR1.  */
 
 #ifdef SIGUSR1
-static RETSIGTYPE
+static void
 debug_signal_handler (int sig UNUSED)
 {
   db_level = db_level ? DB_NONE : DB_BASIC;
@@ -1111,7 +1111,7 @@ main (int argc, char **argv, char **envp)
   PATH_VAR (current_directory);/*定义path变量，存入当前工作路径*/
   unsigned int restarts = 0;
   unsigned int syncing = 0;
-  int argv_slots;
+  int argv_slots;  /* The jobslot info we got from our parent process.  */
 #ifdef WINDOWS32
   const char *unix_path = NULL;
   const char *windows32_path = NULL;
@@ -1325,9 +1325,6 @@ main (int argc, char **argv, char **envp)
 #endif
     }
 
-  /* Set up to access user data (files).  */
-  user_access ();
-
   initialize_global_hash_tables ();
 
   /* Figure out where we are.  */
@@ -1369,6 +1366,7 @@ main (int argc, char **argv, char **envp)
     const char *features = "target-specific order-only second-expansion"
                            " else-if shortest-stem undefine oneshell nocomment"
                            " grouped-target extra-prereqs notintermediate"
+                           " shell-export"
 #ifndef NO_ARCHIVES
                            " archives"
 #endif
@@ -1439,7 +1437,7 @@ main (int argc, char **argv, char **envp)
 
         /* If this is MAKE_RESTARTS, check to see if the "already printed
            the enter statement" flag is set.  */
-        if (len == 13 && memcmp (envp[i], "MAKE_RESTARTS", 13) == 0)
+        if (len == 13 && memcmp (envp[i], STRING_SIZE_TUPLE ("MAKE_RESTARTS")) == 0)
           {
             if (*ep == '-')
               {
@@ -1507,10 +1505,13 @@ main (int argc, char **argv, char **envp)
 #endif
 
   /* Decode the switches.  */
-  decode_env_switches (STRING_SIZE_TUPLE (GNUMAKEFLAGS_NAME));
+  if (lookup_variable (STRING_SIZE_TUPLE (GNUMAKEFLAGS_NAME)))
+    {
+      decode_env_switches (STRING_SIZE_TUPLE (GNUMAKEFLAGS_NAME));
 
-  /* Clear GNUMAKEFLAGS to avoid duplication.  */
-  define_variable_cname (GNUMAKEFLAGS_NAME, "", o_env, 0);
+      /* Clear GNUMAKEFLAGS to avoid duplication.  */
+      define_variable_cname (GNUMAKEFLAGS_NAME, "", o_env, 0);
+    }
 
   decode_env_switches (STRING_SIZE_TUPLE (MAKEFLAGS_NAME));
 
@@ -2015,8 +2016,7 @@ main (int argc, char **argv, char **envp)
       p = endp = value = alloca (len);
       for (i = 0; i < eval_strings->idx; ++i)
         {
-          strcpy (p, "--eval=");
-          p += CSTRLEN ("--eval=");
+          p = stpcpy (p, "--eval=");
           p = quote_for_env (p, eval_strings->list[i]);
           endp = p++;
           *endp = ' ';
@@ -2034,9 +2034,6 @@ main (int argc, char **argv, char **envp)
     /* Read all the makefiles.  */
     /*读取所有makefiles*/
     read_files = read_all_makefiles (makefiles == 0 ? 0 : makefiles->list);
-
-    /* Reset switches that are taken from MAKEFLAGS so we don't get dups.  */
-    reset_switches ();
 
     arg_job_slots = INVALID_JOB_SLOTS;
 
@@ -2056,7 +2053,7 @@ main (int argc, char **argv, char **envp)
     if (arg_job_slots == INVALID_JOB_SLOTS || argv_slots != INVALID_JOB_SLOTS)
       arg_job_slots = old_arg_job_slots;
 
-    else if (jobserver_auth)
+    else if (jobserver_auth && arg_job_slots != old_arg_job_slots)
       {
         /* Makefile MAKEFLAGS set -j, but we already have a jobserver.
            Make us the master of a new jobserver group.  */
@@ -3076,55 +3073,6 @@ print_usage (int bad)
   fprintf (usageto, _("Report bugs to <bug-make@gnu.org>\n"));
 }
 
-/* Reset switches that come from MAKEFLAGS and go to MAKEFLAGS.
-   Before re-parsing MAKEFLAGS, start from scratch.  */
-
-void
-reset_switches ()
-{
-  const struct command_switch *cs;
-
-  for (cs = switches; cs->c != '\0'; ++cs)
-    if (cs->value_ptr && cs->env && cs->toenv)
-      switch (cs->type)
-        {
-        case ignore:
-          break;
-
-        case flag:
-        case flag_off:
-          if (cs->default_value)
-            *(int *) cs->value_ptr = *(int *) cs->default_value;
-          break;
-
-        case positive_int:
-        case string:
-          /* These types are handled specially... leave them alone :(  */
-          break;
-
-        case floating:
-          if (cs->default_value)
-            *(double *) cs->value_ptr = *(double *) cs->default_value;
-          break;
-
-        case filename:
-        case strlist:
-          {
-            /* The strings are in the cache so don't free them.  */
-            struct stringlist *sl = *(struct stringlist **) cs->value_ptr;
-            if (sl)
-              {
-                sl->idx = 0;
-                sl->list[0] = 0;
-              }
-          }
-          break;
-
-        default:
-          abort ();
-        }
-}
-
 /* Decode switches from ARGC and ARGV.
    They came from the environment if ENV is nonzero.  */
 
@@ -3245,6 +3193,19 @@ decode_switches (int argc, const char **argv, int env)
                       sl->list = xrealloc ((void *)sl->list,
                                            sl->max * sizeof (char *));
                     }
+
+                  /* Filter out duplicate options.
+                   * Allow duplicate makefiles for backward compatibility.  */
+                  if (cs->c != 'f')
+                    {
+                      unsigned int k;
+                      for (k = 0; k < sl->idx; ++k)
+                        if (streq (sl->list[k], coptarg))
+                          break;
+                      if (k < sl->idx)
+                        break;
+                    }
+
                   if (cs->type == strlist)
                       /*记录字符串数组*/
                     sl->list[sl->idx++] = xstrdup (coptarg);
@@ -3355,11 +3316,12 @@ decode_env_switches (const char *envar/*环境变量名称*/, size_t len/*环境
   const char **argv;
 
   /* Get the variable's value.  */
-  varref[0] = '$';
-  varref[1] = '(';
-  memcpy (&varref[2], envar, len);/*设置变量名称*/
-  varref[2 + len] = ')';
-  varref[2 + len + 1] = '\0';
+  p = varref;
+  *(p++) = '$';
+  *(p++) = '(';
+  p = mempcpy (p, envar, len);/*设置变量名称*/
+  *(p++) = ')';
+  *p = '\0';
   value = variable_expand (varref);/*要求辅助函数展开此变量，获得其对应的值*/
 
   /* Skip whitespace, and check for an empty value.  */
@@ -3504,22 +3466,19 @@ define_makeflags (int all, int makefile)
           break;
 
         case positive_int:
-          if (all)
+          if ((cs->default_value != 0
+               && (*(unsigned int *) cs->value_ptr
+                   == *(unsigned int *) cs->default_value)))
+            break;
+          if (cs->noarg_value != 0
+              && (*(unsigned int *) cs->value_ptr ==
+                  *(unsigned int *) cs->noarg_value))
+            ADD_FLAG ("", 0); /* Optional value omitted; see below.  */
+          else
             {
-              if ((cs->default_value != 0
-                   && (*(unsigned int *) cs->value_ptr
-                       == *(unsigned int *) cs->default_value)))
-                break;
-              if (cs->noarg_value != 0
-                  && (*(unsigned int *) cs->value_ptr ==
-                      *(unsigned int *) cs->noarg_value))
-                ADD_FLAG ("", 0); /* Optional value omitted; see below.  */
-              else
-                {
-                  char *buf = alloca (30);
-                  sprintf (buf, "%u", *(unsigned int *) cs->value_ptr);
-                  ADD_FLAG (buf, strlen (buf));
-                }
+              char *buf = alloca (30);
+              sprintf (buf, "%u", *(unsigned int *) cs->value_ptr);
+              ADD_FLAG (buf, strlen (buf));
             }
           break;
 
@@ -3539,12 +3498,9 @@ define_makeflags (int all, int makefile)
           break;
 
         case string:
-          if (all)
-            {
-              p = *((char **)cs->value_ptr);
-              if (p)
-                ADD_FLAG (p, strlen (p));
-            }
+          p = *((char **)cs->value_ptr);
+          if (p)
+            ADD_FLAG (p, strlen (p));
           break;
 
         case filename:
@@ -3598,8 +3554,7 @@ define_makeflags (int all, int makefile)
         {
           /* Long options require a double-dash.  */
           *p++ = '-';
-          strcpy (p, flags->cs->long_name);
-          p += strlen (p);
+          p = stpcpy (p, flags->cs->long_name);
         }
       /* An omitted optional argument has an ARG of "".  */
       if (flags->arg && flags->arg[0] != '\0')
@@ -3631,8 +3586,7 @@ define_makeflags (int all, int makefile)
   if (eval_strings)
     {
       *p++ = ' ';
-      memcpy (p, evalref, CSTRLEN (evalref));
-      p += CSTRLEN (evalref);
+      p = mempcpy (p, evalref, CSTRLEN (evalref));
     }
 
   if (all)
@@ -3647,13 +3601,10 @@ define_makeflags (int all, int makefile)
 
       if (v && v->value && v->value[0] != '\0')
         {
-          strcpy (p, " -- ");
-          p += 4;
-
+          p = stpcpy (p, " -- ");
           *(p++) = '$';
           *(p++) = '(';
-          memcpy (p, r, l);
-          p += l;
+          p = mempcpy (p, r, l);
           *(p++) = ')';
         }
     }

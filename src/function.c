@@ -1202,7 +1202,7 @@ func_error (char *o, char **argv, const char *funcname)
       {
         size_t len = strlen (argv[0]);
         char *msg = alloca (len + 2);
-        strcpy (msg, argv[0]);
+        memcpy (msg, argv[0], len);
         msg[len] = '\n';
         msg[len + 1] = '\0';
         outputs (0, msg);
@@ -1742,12 +1742,6 @@ windows32_openpipe (int *pipedes, int errfd, pid_t *pid_p, char **command_argv, 
       return -1;
     }
 
-  /* make sure that CreateProcess() has Path it needs */
-  sync_Path_environment ();
-  /* 'sync_Path_environment' may realloc 'environ', so take note of
-     the new value.  */
-  envp = environ;
-
   if (! process_begin (hProcess, command_argv, envp, command_argv[0], NULL))
     {
       /* register process for wait */
@@ -1862,13 +1856,13 @@ func_shell_base (char *o, char **argv, int trim_newlines)
 char *
 func_shell_base (char *o, char **argv, int trim_newlines)
 {
+  struct childbase child = {0};
   char *batch_filename = NULL;
   int errfd;
 #ifdef __MSDOS__
   FILE *fpipe;
 #endif
   char **command_argv = NULL;
-  char **envp;
   int pipedes[2];
   pid_t pid;
 
@@ -1893,25 +1887,13 @@ func_shell_base (char *o, char **argv, int trim_newlines)
     }
 #endif /* !__MSDOS__ */
 
-  /* Using a target environment for 'shell' loses in cases like:
-       export var = $(shell echo foobie)
-       bad := $(var)
-     because target_environment hits a loop trying to expand $(var) to put it
-     in the environment.  This is even more confusing when 'var' was not
-     explicitly exported, but just appeared in the calling environment.
-
-     See Savannah bug #10593.
-
-  envp = target_environment (NULL);
-  */
-
-  envp = environ;
-
   /* Set up the output in case the shell writes something.  */
   output_start ();
 
   errfd = (output_context && output_context->err >= 0
            ? output_context->err : FD_STDERR);
+
+  child.environment = target_environment (NULL, 0);
 
 #if defined(__MSDOS__)
   fpipe = msdos_openpipe (pipedes, &pid, argv[0]);
@@ -1923,7 +1905,7 @@ func_shell_base (char *o, char **argv, int trim_newlines)
     }
 
 #elif defined(WINDOWS32)
-  windows32_openpipe (pipedes, errfd, &pid, command_argv, envp);
+  windows32_openpipe (pipedes, errfd, &pid, command_argv, child.environment);
   /* Restore the value of just_print_flag.  */
   just_print_flag = j_p_f;
 
@@ -1948,18 +1930,11 @@ func_shell_base (char *o, char **argv, int trim_newlines)
   fd_noinherit (pipedes[1]);
   fd_noinherit (pipedes[0]);
 
-  {
-    struct childbase child;
-    child.cmd_name = NULL;
-    child.output.syncout = 1;
-    child.output.out = pipedes[1];
-    child.output.err = errfd;
-    child.environment = envp;
+  child.output.syncout = 1;
+  child.output.out = pipedes[1];
+  child.output.err = errfd;
 
-    pid = child_execute_job (&child, 1, command_argv);
-
-    free (child.cmd_name);
-  }
+  pid = child_execute_job (&child, 1, command_argv);
 
   if (pid < 0)
     {
@@ -2046,6 +2021,8 @@ func_shell_base (char *o, char **argv, int trim_newlines)
       free (command_argv);
     }
 
+  free_childbase (&child);
+
   return o;
 }
 
@@ -2100,8 +2077,8 @@ func_shell_base (char *o, char **argv, int trim_newlines)
     {
       strcpy (ptr, *aptr);
       ptr += strlen (ptr) + 1;
-      *ptr ++ = ' ';
-      *ptr = 0;
+      *(ptr++) = ' ';
+      *ptr = '\0';
     }
 
   ptr[-1] = '\n';
@@ -2290,8 +2267,7 @@ abspath (const char *name, char *apath)
           if (dest + len >= apath_limit)
             return NULL;
 
-          dest = memcpy (dest, start, len);
-          dest += len;
+          dest = mempcpy (dest, start, len);
           *dest = '\0';
         }
     }
@@ -2715,9 +2691,8 @@ handle_function (char **op, const char **stringp)
 
       /*复制参数*/
       abeg = xmalloc (len+1);
-      memcpy (abeg, beg, len);
-      abeg[len] = '\0';
-      aend = abeg + len;/*指向参数结尾*/
+      aend = mempcpy (abeg, beg, len);
+      *aend = '\0';/*指向参数结尾*/
 
       for (p=abeg, nargs=0; p <= aend; ++argvp)
         {
