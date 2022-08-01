@@ -28,7 +28,7 @@ struct variable_set_list;
 
 struct file
   {
-    const char *name;
+    const char *name;/*文件名称*/
     const char *hname;          /* Hashed filename */
     const char *vpath;          /* VPATH/vpath pathname */
     struct dep *deps;           /* all dependencies, including duplicates */
@@ -81,6 +81,7 @@ struct file
         cs_finished             /* Commands finished.  */
       } command_state ENUM_BITFIELD (2);
 
+    /*是否内建规则*/
     unsigned int builtin:1;     /* True if the file is a builtin rule. */
     unsigned int precious:1;    /* Non-0 means don't delete file on quit */
     unsigned int loaded:1;      /* True if the file is a loaded object. */

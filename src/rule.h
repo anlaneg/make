@@ -20,12 +20,17 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 struct rule
   {
     struct rule *next;
+    /*保存target数组*/
     const char **targets;       /* Targets of the rule.  */
+    /*各target字符串长度*/
     unsigned int *lens;         /* Lengths of each target.  */
+    /*target中可包含%号以表示通配，故后缀取%后的内容*/
     const char **suffixes;      /* Suffixes (after '%') of each target.  */
+    /*规则依赖的target*/
     struct dep *deps;           /* Dependencies of the rule.  */
     struct commands *cmds;      /* Commands to execute.  */
     char *_defn;                /* Definition of the rule. */
+    /*target数目*/
     unsigned short num;         /* Number of targets.  */
     char terminal;              /* If terminal (double-colon).  */
     char in_use;                /* If in use by a parent pattern_search.  */

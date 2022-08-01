@@ -81,11 +81,12 @@ collapse_continuations (char *line)
 
   q = strchr(in, '\n');
   if (q == 0)
+      /*这一行字符串中不含行尾符'\n',需要增加内容，这里返回*/
     return;
 
   do
     {
-      char *p = q;
+      char *p = q;/*q指向的行尾符*/
       int i;
       size_t out_line_length;
 
@@ -327,6 +328,7 @@ lindex (const char *s, const char *limit, int c)
 {
   while (s < limit)
     if (*s++ == c)
+        /*在s至limit之间，查找到了字符c，返回其对应的位置*/
       return (char *)(s - 1);
 
   return 0;
@@ -337,8 +339,10 @@ lindex (const char *s, const char *limit, int c)
 char *
 end_of_token (const char *s)
 {
+    /*跳过空格*/
   while (! END_OF_TOKEN (*s))
     ++s;
+  /*返回非空字符*/
   return (char *)s;
 }
 
@@ -356,7 +360,7 @@ next_token (const char *s)
    of the token, so this function can be called repeatedly in a loop.  */
 
 char *
-find_next_token (const char **ptr, size_t *lengthptr)
+find_next_token (const char **ptr, size_t *lengthptr/*出参，token长度*/)
 {
   const char *p = next_token (*ptr);
 

@@ -149,7 +149,7 @@ set_file_variables (struct file *file, const char *stem)
 
   /* Define the variables.  */
 
-  DEFINE_VARIABLE ("<", 1, less);
+  DEFINE_VARIABLE ("<", 1, less);/*定义变量'<',即常使用的$<*/
   DEFINE_VARIABLE ("*", 1, star);
   DEFINE_VARIABLE ("@", 1, at);
   DEFINE_VARIABLE ("%", 1, percent);

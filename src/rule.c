@@ -273,7 +273,7 @@ convert_suffix_rule (const char *target, const char *source,
       deps->name = strcache_add_len (p, len + 1);
     }
 
-  create_pattern_rule (names, percents, 1, 0, deps, cmds, 0);
+  create_pattern_rule (names, percents, 1/*创建一个target*/, 0, deps, cmds, 0);
 }
 
 /* Convert old-style suffix rules to pattern rules.
@@ -372,7 +372,7 @@ convert_to_pattern (void)
    the list.  Return nonzero if RULE is used; zero if not.  */
 
 static int
-new_pattern_rule (struct rule *rule, int override)
+new_pattern_rule (struct rule *rule, int override/*是否覆盖*/)
 {
   struct rule *r, *lastrule;
   unsigned int i, j;
@@ -384,15 +384,21 @@ new_pattern_rule (struct rule *rule, int override)
 
   /* Search for an identical rule.  */
   lastrule = 0;
+  /*通过r遍历pattern_rules*/
   for (r = pattern_rules; r != 0; lastrule = r, r = r->next)
+      /*通过i遍历rule的每个target*/
     for (i = 0; i < rule->num; ++i)
       {
+        /*检查要添加的rule与待检查的r是否存在相同的target*/
         for (j = 0; j < r->num; ++j)
           if (!streq (rule->targets[i], r->targets[j]))
+              /*遇到相同的不target，跳出*/
             break;
         /* If all the targets matched...  */
+        /*如注释所言，所有的target均匹配*/
         if (j == r->num)
           {
+            /*检查rule与r的依赖名称是否完全一致*/
             struct dep *d, *d2;
             for (d = rule->deps, d2 = r->deps;
                  d != 0 && d2 != 0; d = d->next, d2 = d2->next)
@@ -401,15 +407,18 @@ new_pattern_rule (struct rule *rule, int override)
             if (d == 0 && d2 == 0)
               {
                 /* All the dependencies matched.  */
-                if (override)
+                /*如注释所言，两个规则的依赖情况也完全一致*/
+                if (override/*需要覆盖*/)
                   {
                     /* Remove the old rule.  */
                     freerule (r, lastrule);
                     /* Install the new one.  */
+                    /*pattern规则为空，则新加入的为首条规则，否则将其串接至结尾*/
                     if (pattern_rules == 0)
                       pattern_rules = rule;
                     else
                       last_pattern_rule->next = rule;
+                    /*为方便下次添加，记录最后一条pattern_rule*/
                     last_pattern_rule = rule;
 
                     /* We got one.  Stop looking.  */
@@ -417,6 +426,7 @@ new_pattern_rule (struct rule *rule, int override)
                   }
                 else
                   {
+                    /*不容许移除，释放掉待添加的规则*/
                     /* The old rule stays intact.  Destroy the new one.  */
                     freerule (rule, (struct rule *) 0);
                     return 0;
@@ -430,10 +440,13 @@ new_pattern_rule (struct rule *rule, int override)
   if (r == 0)
     {
       /* There was no rule to replace.  */
+      /*没有找到需要替换的规则，执行添加
+       * pattern规则为空，则新加入的为首条规则，否则将其串接至结尾*/
       if (pattern_rules == 0)
         pattern_rules = rule;
       else
         last_pattern_rule->next = rule;
+      /*为方便下次添加，记录最后一条pattern_rule*/
       last_pattern_rule = rule;
     }
 
@@ -454,21 +467,24 @@ install_pattern_rule (struct pspec *p, int terminal)
 
   r = xmalloc (sizeof (struct rule));
 
-  r->num = 1;
-  r->targets = xmalloc (sizeof (const char *));
+  r->num = 1;/*规则target数为1*/
+  r->targets = xmalloc (sizeof (const char *));/*仅申请指针*/
   r->suffixes = xmalloc (sizeof (const char *));
   r->lens = xmalloc (sizeof (unsigned int));
   r->_defn = NULL;
 
+  /*记录target名称长度*/
   r->lens[0] = (unsigned int) strlen (p->target);
-  r->targets[0] = p->target;
+  r->targets[0] = p->target;/*记录target0*/
   r->suffixes[0] = find_percent_cached (&r->targets[0]);
-  assert (r->suffixes[0] != NULL);
+  assert (r->suffixes[0] != NULL);/*后缀总为非NULL*/
+  /*当前r->suffixes指向的内容由find_percent_cached返回，故首字符为%,这里通过++跳过它*/
   ++r->suffixes[0];
 
   ptr = p->dep;
   r->deps = PARSE_SIMPLE_SEQ ((char **)&ptr, struct dep);
 
+  /*添加规则r,不支持覆盖*/
   if (new_pattern_rule (r, 0))
     {
       r->terminal = terminal ? 1 : 0;
@@ -537,8 +553,8 @@ freerule (struct rule *rule, struct rule *lastrule)
    must not be freed until the rule is destroyed.  */
 
 void
-create_pattern_rule (const char **targets, const char **target_percents,
-                     unsigned short n, int terminal, struct dep *deps,
+create_pattern_rule (const char **targets/*targets数组*/, const char **target_percents/*后缀*/,
+                     unsigned short n/*target数目*/, int terminal, struct dep *deps/*规则依赖*/,
                      struct commands *commands, int override)
 {
   unsigned int i;
@@ -554,11 +570,13 @@ create_pattern_rule (const char **targets, const char **target_percents,
 
   for (i = 0; i < n; ++i)
     {
+      /*填充各target对应的字符串长度*/
       r->lens[i] = (unsigned int) strlen (targets[i]);
       assert (r->suffixes[i] != NULL);
       ++r->suffixes[i];
     }
 
+  /*规则添加*/
   if (new_pattern_rule (r, override))
     r->terminal = terminal ? 1 : 0;
 }

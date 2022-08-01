@@ -31,14 +31,21 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 struct function_table_entry
   {
     union {
+        /*函数指针*/
       char *(*func_ptr) (char *output, char **argv, const char *fname);
       gmk_func_ptr alloc_func_ptr;
     } fptr;
+    /*函数名称*/
     const char *name;
+    /*函数名称长度*/
     unsigned char len;
+    /*最小参数*/
     unsigned char minimum_args;
+    /*最大参数*/
     unsigned char maximum_args;
+    /*是否需要展开参数*/
     unsigned int expand_args:1;
+    /*是否需要调用alloc_func_ptr,标记fptr中哪个回调可用*/
     unsigned int alloc_fn:1;
     unsigned int adds_command:1;
   };
@@ -267,22 +274,29 @@ patsubst_expand (char *o, const char *text, char *pattern, char *replace)
 
 
 /* Look up a function by name.  */
-
+/*查询s指向的字符串对应的function*/
 static const struct function_table_entry *
 lookup_function (const char *s)
 {
   struct function_table_entry function_table_entry_key;
   const char *e = s;
 
+  /*遍历s,跳过userfunc容许的字符*/
   while (STOP_SET (*e, MAP_USERFUNC))
     e++;
 
   if (e == s || !STOP_SET(*e, MAP_NUL|MAP_SPACE))
+      /*1。e == s，s不是userfunc容许的字符，非函数，返回NULL
+       * 2。func字符串后面不是space字符，也不是‘\0',认为非函数，返回NULL
+       * */
     return NULL;
 
+  /*指向包含函数名称的字符串*/
   function_table_entry_key.name = s;
+  /*指明此输入中指明的函数名称长度*/
   function_table_entry_key.len = (unsigned char) (e - s);
 
+  /*返回对应的函数entry*/
   return hash_find_item (&function_table, &function_table_entry_key);
 }
 
@@ -331,23 +345,26 @@ find_next_argument (char startparen, char endparen,
 
   for (; ptr < end; ++ptr)
     if (!STOP_SET (*ptr, MAP_VARSEP|MAP_COMMA))
+        /*忽略非以上字符*/
       continue;
 
     else if (*ptr == startparen)
+        /*遇到开区间标记，层次添加*/
       ++count;
 
     else if (*ptr == endparen)
       {
+        /*遇到闭区间标记，层次减少*/
         --count;
         if (count < 0)
           return NULL;
       }
 
     else if (*ptr == ',' && !count)
-      return (char *)ptr;
+      return (char *)ptr;/*返回当前参数的结束位置*/
 
   /* We didn't find anything.  */
-  return NULL;
+  return NULL;/*所有参数已被遍历完*/
 }
 
 
@@ -2184,6 +2201,7 @@ abspath (const char *name, char *apath)
 
   apath_limit = apath + GET_PATH_MAX;
 
+  /*检查是否为绝对地址*/
   if (!IS_ABSOLUTE(name))
     {
       /* It is unlikely we would make it until here but just to make sure. */
@@ -2455,6 +2473,7 @@ func_abspath (char *o, char **argv, const char *funcname UNUSED)
           strncpy (in, path, len);
           in[len] = '\0';
 
+          /*输出绝对地址*/
           if (abspath (in, out))
             {
               o = variable_buffer_output (o, out, strlen (out));
@@ -2489,6 +2508,7 @@ static char *func_call (char *o, char **argv, const char *funcname);
 #define FT_ENTRY(_name, _min, _max, _exp, _func) \
   { { (_func) }, STRING_SIZE_TUPLE(_name), (_min), (_max), (_exp), 0, 0 }
 
+/*make提供的辅助函数*/
 static struct function_table_entry function_table_init[] =
 {
  /*         Name            MIN MAX EXP? Function */
@@ -2519,6 +2539,7 @@ static struct function_table_entry function_table_init[] =
   FT_ENTRY ("origin",        0,  1,  1,  func_origin),
   FT_ENTRY ("foreach",       3,  3,  0,  func_foreach),
   FT_ENTRY ("let",           3,  3,  0,  func_let),
+  /*call函数，调用用户自定义函数*/
   FT_ENTRY ("call",          1,  0,  1,  func_call),
   FT_ENTRY ("info",          0,  1,  1,  func_error),
   FT_ENTRY ("error",         0,  1,  1,  func_error),
@@ -2536,6 +2557,7 @@ static struct function_table_entry function_table_init[] =
 #endif
 };
 
+/*内置函数数目*/
 #define FUNCTION_TABLE_ENTRIES (sizeof (function_table_init) / sizeof (struct function_table_entry))
 
 
@@ -2548,6 +2570,7 @@ expand_builtin_function (char *o, int argc, char **argv,
   char *p;
 
   if (argc < (int)entry_p->minimum_args)
+      /*参数过少，报错*/
     fatal (*expanding_var, strlen (entry_p->name),
            _("insufficient number of arguments (%d) to function '%s'"),
            argc, entry_p->name);
@@ -2557,9 +2580,11 @@ expand_builtin_function (char *o, int argc, char **argv,
      rather than in each one.  We can change it later if necessary.  */
 
   if (!argc && !entry_p->alloc_fn)
+      /*没有参数，并且没有alloc_fn,返回output自身*/
     return o;
 
   if (!entry_p->fptr.func_ptr)
+      /*没有对应的实现函数，报错*/
     OS (fatal, *expanding_var,
         _("unimplemented on this platform: function '%s'"), entry_p->name);
 
@@ -2567,18 +2592,22 @@ expand_builtin_function (char *o, int argc, char **argv,
     ++command_count;
 
   if (!entry_p->alloc_fn)
+      /*没有设置alloc_fn，调用func_ptr完成函数调用*/
     return entry_p->fptr.func_ptr (o, argv, entry_p->name);
 
   /* This function allocates memory and returns it to us.
      Write it to the variable buffer, then free it.  */
 
+  /*设置了alloc_fn,通过调用alloc_func_ptr完成函数调用*/
   p = entry_p->fptr.alloc_func_ptr (entry_p->name, argc, argv);
   if (p)
     {
+      /*将返回值加入到output buffer中*/
       o = variable_buffer_output (o, p, strlen (p));
       free (p);
     }
 
+  /*返回buffer可填充位置*/
   return o;
 }
 
@@ -2587,11 +2616,14 @@ expand_builtin_function (char *o, int argc, char **argv,
    is found, expand it into the buffer at *OP, updating *OP, incrementing
    *STRINGP past the reference and returning nonzero.  If not, return zero.  */
 
+/*op指向output buffer,stringp指向“$(”,“${”中$后面的内容*/
 int
 handle_function (char **op, const char **stringp)
 {
   const struct function_table_entry *entry_p;
+  /*取开区间标记*/
   char openparen = (*stringp)[0];
+  /*依据开区间标记，取闭区间标记*/
   char closeparen = openparen == '(' ? ')' : '}';
   const char *beg;
   const char *end;
@@ -2600,18 +2632,21 @@ handle_function (char **op, const char **stringp)
   char **argv, **argvp;
   int nargs;
 
+  /*指向闭区间起始查找地址*/
   beg = *stringp + 1;
 
+  /*由此先查函数*/
   entry_p = lookup_function (beg);
 
   if (!entry_p)
+      /*beg指向的不是函数名称，返回0*/
     return 0;
 
   /* We found a builtin function.  Find the beginning of its arguments (skip
      whitespace after the name).  */
 
-  beg += entry_p->len;
-  NEXT_TOKEN (beg);
+  beg += entry_p->len;/*跳过函数名称*/
+  NEXT_TOKEN (beg);/*跳过空字符*/
 
   /* Find the end of the function invocation, counting nested use of
      whichever kind of parens we use.  Since we're looking, count commas
@@ -2620,19 +2655,25 @@ handle_function (char **op, const char **stringp)
 
   for (nargs=1, end=beg; *end != '\0'; ++end)
     if (!STOP_SET (*end, MAP_VARSEP|MAP_COMMA))
+        /*非以上字符将被忽略*/
       continue;
     else if (*end == ',')
+        /*函数的参数以逗号进行分隔*/
       ++nargs;
     else if (*end == openparen)
+        /*遇到新的开区间，层次添加*/
       ++count;
     else if (*end == closeparen && --count < 0)
+        /*遇到闭区间标记，层次减小，如果减为0，则函数解析完成*/
       break;
 
   if (count >= 0)
+      /*遇到字符串结束标记，但层次未减少为0，故函数开闭区间匹配失败*/
     fatal (*expanding_var, strlen (entry_p->name),
            _("unterminated call to function '%s': missing '%c'"),
            entry_p->name, closeparen);
 
+  /*参数结束位置*/
   *stringp = end;
 
   /* Get some memory to store the arg pointers.  */
@@ -2649,7 +2690,7 @@ handle_function (char **op, const char **stringp)
   if (entry_p->expand_args)
     {
       const char *p;
-      for (p=beg, nargs=0; p <= end; ++argvp)
+      for (p=beg/*参数起始位置*/, nargs=0; p <= end/*参数结束位置*/; ++argvp)
         {
           const char *next;
 
@@ -2657,21 +2698,26 @@ handle_function (char **op, const char **stringp)
 
           if (nargs == entry_p->maximum_args
               || ((next = find_next_argument (openparen, closeparen, p, end)) == NULL))
+              /*所有参数均被解析，指向end*/
             next = end;
 
+          /*自p开始，到next结束为一个参数，展开其内容，并填充到argvp中*/
           *argvp = expand_argument (p, next);
+          /*准备展开下个参数*/
           p = next + 1;
         }
     }
   else
     {
+      /*参数总长度*/
       size_t len = end - beg;
       char *p, *aend;
 
+      /*复制参数*/
       abeg = xmalloc (len+1);
       memcpy (abeg, beg, len);
       abeg[len] = '\0';
-      aend = abeg + len;
+      aend = abeg + len;/*指向参数结尾*/
 
       for (p=abeg, nargs=0; p <= aend; ++argvp)
         {
@@ -2683,18 +2729,20 @@ handle_function (char **op, const char **stringp)
               || ((next = find_next_argument (openparen, closeparen, p, aend)) == NULL))
             next = aend;
 
-          *argvp = p;
+          *argvp = p;/*填充此参数*/
           *next = '\0';
           p = next + 1;
         }
     }
-  *argvp = NULL;
+  *argvp = NULL;/*设置参数结尾标记*/
 
   /* Finally!  Run the function...  */
+  /*现在可以调用内置的function了*/
   *op = expand_builtin_function (*op, nargs, argv, entry_p);
 
   /* Free memory.  */
   if (entry_p->expand_args)
+      /*释放函数参数对应的内存*/
     for (argvp=argv; *argvp != 0; ++argvp)
       free (*argvp);
   else
@@ -2730,13 +2778,15 @@ func_call (char *o, char **argv, const char *funcname UNUSED)
 
   /* Are we invoking a builtin function?  */
 
+  /*通过fname查询函数实体*/
   entry_p = lookup_function (fname);
   if (entry_p)
     {
       /* How many arguments do we have?  */
+      /*确定我们有多少个参数*/
       for (i=0; argv[i+1]; ++i)
         ;
-      return expand_builtin_function (o, i, argv+1, entry_p);
+      return expand_builtin_function (o, i/*参数数量*/, argv+1/*参数起始地址*/, entry_p);
     }
 
   /* Not a builtin, so the first argument is the name of a variable to be
@@ -2801,9 +2851,9 @@ func_call (char *o, char **argv, const char *funcname UNUSED)
 }
 
 void
-define_new_function (const floc *flocp, const char *name,
-                     unsigned int min, unsigned int max, unsigned int flags,
-                     gmk_func_ptr func)
+define_new_function (const floc *flocp, const char *name/*要定义的函数名称*/,
+                     unsigned int min/*最小参数*/, unsigned int max/*最大参数*/, unsigned int flags,
+                     gmk_func_ptr func/*要执行的函数实现函数*/)
 {
   const char *e = name;
   struct function_table_entry *ent;
@@ -2811,18 +2861,23 @@ define_new_function (const floc *flocp, const char *name,
 
   while (STOP_SET (*e, MAP_USERFUNC))
     e++;
-  len = e - name;
+  len = e - name;/*函数名称长度*/
 
   if (len == 0)
+      /*报错，函数名称为0*/
     O (fatal, flocp, _("Empty function name"));
   if (*name == '.' || *e != '\0')
+      /*报错，函数名称不合法*/
     OS (fatal, flocp, _("Invalid function name: %s"), name);
   if (len > 255)
+      /*报错，函数名称过长*/
     OS (fatal, flocp, _("Function name too long: %s"), name);
   if (min > 255)
+      /*报错，函数最小参数过大*/
     ONS (fatal, flocp,
          _("Invalid minimum argument count (%u) for function %s"), min, name);
   if (max > 255 || (max && max < min))
+      /*报错，函数最大参数过大，或者函数最小参数与最大参数不合拍*/
     ONS (fatal, flocp,
          _("Invalid maximum argument count (%u) for function %s"), max, name);
 
@@ -2831,18 +2886,21 @@ define_new_function (const floc *flocp, const char *name,
   ent->len = (unsigned char) len;
   ent->minimum_args = (unsigned char) min;
   ent->maximum_args = (unsigned char) max;
+  /*是否不展开参数*/
   ent->expand_args = ANY_SET(flags, GMK_FUNC_NOEXPAND) ? 0 : 1;
-  ent->alloc_fn = 1;
+  ent->alloc_fn = 1;/*要求使用alloc_func_ptr指针*/
   /* We don't know what this function will do.  */
   ent->adds_command = 1;
   ent->fptr.alloc_func_ptr = func;
 
+  /*添加新定义的函数*/
   hash_insert (&function_table, ent);
 }
 
 void
 hash_init_function_table (void)
 {
+    /*初始化function_table*/
   hash_init (&function_table, FUNCTION_TABLE_ENTRIES * 2,
              function_table_entry_hash_1, function_table_entry_hash_2,
              function_table_entry_hash_cmp);

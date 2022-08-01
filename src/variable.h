@@ -59,9 +59,12 @@ enum variable_export
 
 struct variable
   {
+    /*变量名称*/
     char *name;                 /* Variable name.  */
+    /*变量取值*/
     char *value;                /* Variable value.  */
     floc fileinfo;              /* Where the variable was defined.  */
+    /*变量名称长度*/
     unsigned int length;        /* strlen (name) */
     unsigned int recursive:1;   /* Gets recursively re-evaluated.  */
     unsigned int append:1;      /* Nonzero if an appending target-specific
@@ -77,8 +80,10 @@ struct variable
     unsigned int exp_count:EXP_COUNT_BITS;
                                 /* If >1, allow this many self-referential
                                    expansions.  */
+    /*指明何种类型的变量，例如'=',':=','?='...*/
     enum variable_flavor
       flavor ENUM_BITFIELD (3); /* Variable flavor.  */
+    /*变量来源，例如来源于”环境变量“*/
     enum variable_origin
       origin ENUM_BITFIELD (3); /* Variable origin.  */
     enum variable_export
@@ -89,6 +94,7 @@ struct variable
 
 struct variable_set
   {
+    /*利用hash表来存储变量*/
     struct hash_table table;    /* Hash table of variables.  */
   };
 
@@ -97,6 +103,7 @@ struct variable_set
 struct variable_set_list
   {
     struct variable_set_list *next;     /* Link in the chain.  */
+    /*变量集合*/
     struct variable_set *set;           /* Variable set.  */
     int next_is_parent;                 /* True if next is a parent target.  */
   };
@@ -126,6 +133,7 @@ char *variable_buffer_output (char *ptr, const char *string, size_t length);
 char *variable_expand (const char *line);
 char *variable_expand_for_file (const char *line, struct file *file);
 char *allocated_variable_expand_for_file (const char *line, struct file *file);
+/*针对给定的字符串line,执行变量展开*/
 #define allocated_variable_expand(line) \
   allocated_variable_expand_for_file (line, (struct file *) 0)
 char *expand_argument (const char *str, const char *end);
@@ -191,13 +199,13 @@ struct variable *define_variable_in_set (const char *name, size_t length,
 
 /* Define a variable in the current variable set.  */
 
-#define define_variable(n,l,v,o,r) \
+#define define_variable(n/*变量名*/,l/*变量名长度*/,v/*变量取值*/,o/*指明变量来源*/,r) \
           define_variable_in_set((n),(l),(v),(o),(r),\
                                  current_variable_set_list->set,NILF)
 
 /* Define a variable with a constant name in the current variable set.  */
 
-#define define_variable_cname(n,v,o,r) \
+#define define_variable_cname(n/*变量名*/,v/*变量取值*/,o/*指明变量来源*/,r) \
           define_variable_in_set((n),(sizeof (n) - 1),(v),(o),(r),\
                                  current_variable_set_list->set,NILF)
 

@@ -193,9 +193,9 @@ init_hash_global_variable_set (void)
    that it should be recursively re-expanded.  */
 
 struct variable *
-define_variable_in_set (const char *name, size_t length,
-                        const char *value, enum variable_origin origin,
-                        int recursive, struct variable_set *set,
+define_variable_in_set (const char *name/*变量名称*/, size_t length/*变量名长度*/,
+                        const char *value/*变量值*/, enum variable_origin origin/*指明变量来源*/,
+                        int recursive, struct variable_set *set/*要存入的变量set*/,
                         const floc *flocp)
 {
   struct variable *v;
@@ -203,10 +203,12 @@ define_variable_in_set (const char *name, size_t length,
   struct variable var_key;
 
   if (set == NULL)
+    /*未指定变量set,使用全局变量set*/
     set = &global_variable_set;
 
   var_key.name = (char *) name;
   var_key.length = (unsigned int) length;
+  /*查找此变量对应的slot*/
   var_slot = (struct variable **) hash_find_slot (&set->table, &var_key);
   v = *var_slot;
 
@@ -253,6 +255,7 @@ define_variable_in_set (const char *name, size_t length,
          than this one, don't redefine it.  */
       if ((int) origin >= (int) v->origin)
         {
+          /*变量来源更优，覆盖之前的变量值设置*/
           free (v->value);
           v->value = xstrdup (value);
           if (flocp != 0)
@@ -270,8 +273,9 @@ define_variable_in_set (const char *name, size_t length,
   v = xcalloc (sizeof (struct variable));
   v->name = xstrndup (name, length);
   v->length = (unsigned int) length;
-  hash_insert_at (&set->table, v, var_slot);
+  hash_insert_at (&set->table, v, var_slot);/*将变量写入到table中*/
   if (set == &global_variable_set)
+      /*增加全局变量数目*/
     ++variable_changenum;
 
   v->value = xstrdup (value);
@@ -286,14 +290,17 @@ define_variable_in_set (const char *name, size_t length,
   name = v->name;
   if (*name != '_' && (*name < 'A' || *name > 'Z')
       && (*name < 'a' || *name > 'z'))
+    /*变量名称首字每非id字符*/
     v->exportable = 0;
   else
     {
       for (++name; *name != '\0'; ++name)
         if (*name != '_' && (*name < 'a' || *name > 'z')
             && (*name < 'A' || *name > 'Z') && !ISDIGIT(*name))
+            /*遇到非id字符*/
           break;
 
+      /*名称检查未通过，置为exportable为0*/
       if (*name != '\0')
         v->exportable = 0;
     }
@@ -454,7 +461,7 @@ lookup_special_var (struct variable *var)
    on the variable, or nil if no such variable is defined.  */
 
 struct variable *
-lookup_variable (const char *name, size_t length)
+lookup_variable (const char *name/*变量名称*/, size_t length/*变量名称长度*/)
 {
   const struct variable_set_list *setlist;
   struct variable var_key;
@@ -463,14 +470,17 @@ lookup_variable (const char *name, size_t length)
   var_key.name = (char *) name;
   var_key.length = (unsigned int) length;
 
+  /*返回variable_set_list*/
   for (setlist = current_variable_set_list;
        setlist != 0; setlist = setlist->next)
     {
       const struct variable_set *set = setlist->set;
       struct variable *v;
 
+      /*查询变量对应的hash table*/
       v = (struct variable *) hash_find_item ((struct hash_table *) &set->table, &var_key);
       if (v && (!is_parent || !v->private_var))
+          /*查找到变量,且变量不是私有变量，如果变量有special标记，则进行special处理，否则返回variable*/
         return v->special ? lookup_special_var (v) : v;
 
       is_parent |= setlist->next_is_parent;
@@ -550,6 +560,7 @@ lookup_variable_in_set (const char *name, size_t length,
   var_key.name = (char *) name;
   var_key.length = (unsigned int) length;
 
+  /*在set->table中查询此var_key对应的variable*/
   return (struct variable *) hash_find_item ((struct hash_table *) &set->table, &var_key);
 }
 
@@ -1180,9 +1191,9 @@ shell_result (const char *p)
    See the try_variable_definition() function for details on the parameters. */
 
 struct variable *
-do_variable_definition (const floc *flocp, const char *varname,
-                        const char *value, enum variable_origin origin,
-                        enum variable_flavor flavor, int target_var)
+do_variable_definition (const floc *flocp, const char *varname/*变量名称*/,
+                        const char *value/*变量取值*/, enum variable_origin origin/*变量来源*/,
+                        enum variable_flavor flavor/*变量定义方式*/, int target_var)
 {
   const char *p;
   char *alloc_value = NULL;
@@ -1199,16 +1210,18 @@ do_variable_definition (const floc *flocp, const char *varname,
          We have to allocate memory since otherwise it'll clobber the
          variable buffer, and we may still need that if we're looking at a
          target-specific variable.  */
+      /*在此位置展开变量值，利用p记录展开后的值*/
       p = alloc_value = allocated_variable_expand (value);
       break;
-    case f_expand:
+    case f_expand:/*部分机器不支持此类型*/
       {
         /* A POSIX "var :::= value" assignment.  Expand the value, then it
            becomes a recursive variable.  After expansion convert all '$'
            tokens to '$$' to resolve to '$' when recursively expanded.  */
-        char *t = allocated_variable_expand (value);
+        char *t = allocated_variable_expand (value);/*展开p中的内容*/
         char *np = alloc_value = xmalloc (strlen (t) * 2 + 1);
         p = t;
+        /*检查展开的内容，如果其中包含'$'符号，则替换为$$*/
         while (p[0] != '\0')
           {
             if (p[0] == '$')
@@ -1216,7 +1229,7 @@ do_variable_definition (const floc *flocp, const char *varname,
             *(np++) = *(p++);
           }
         *np = '\0';
-        p = alloc_value;
+        p = alloc_value;/*记录替换后内容*/
         free (t);
         break;
       }
@@ -1224,8 +1237,8 @@ do_variable_definition (const floc *flocp, const char *varname,
       {
         /* A shell definition "var != value".  Expand value, pass it to
            the shell, and store the result in recursively-expanded var. */
-        char *q = allocated_variable_expand (value);
-        p = alloc_value = shell_result (q);
+        char *q = allocated_variable_expand (value);/*先将value展开*/
+        p = alloc_value = shell_result (q);/*将此值传递给shell进行指针*/
         free (q);
         flavor = f_recursive;
         break;
@@ -1235,15 +1248,16 @@ do_variable_definition (const floc *flocp, const char *varname,
          The value is set IFF the variable is not defined yet. */
       v = lookup_variable (varname, strlen (varname));
       if (v)
+        /*如果变量varname已定义，则此处不再设置*/
         goto done;
 
       conditional = 1;
-      flavor = f_recursive;
+      flavor = f_recursive;/*变更为递归赋值*/
       /* FALLTHROUGH */
     case f_recursive:
       /* A recursive variable definition "var = value".
          The value is used verbatim.  */
-      p = value;
+      p = value;/*直接赋值，不进行展开,延迟到最终再展开*/
       break;
     case f_append:
     case f_append_value:
@@ -1253,12 +1267,14 @@ do_variable_definition (const floc *flocp, const char *varname,
         if (target_var)
           {
             append = 1;
+            /*通过变量名查询此变量*/
             v = lookup_variable_in_set (varname, strlen (varname),
                                         current_variable_set_list->set);
 
             /* Don't append from the global set if a previous non-appending
                target-specific variable definition exists. */
             if (v && !v->append)
+                /*变量确认，但变量不容许append*/
               append = 0;
           }
         else
@@ -1269,7 +1285,7 @@ do_variable_definition (const floc *flocp, const char *varname,
             /* There was no old value.
                This becomes a normal recursive definition.  */
             p = value;
-            flavor = f_recursive;
+            flavor = f_recursive;/*此变量之前未定义，退化为延迟展开的变量*/
           }
         else
           {
@@ -1290,7 +1306,7 @@ do_variable_definition (const floc *flocp, const char *varname,
                  when it was set; and from the expanded new value.  Allocate
                  memory for the expansion as we may still need the rest of the
                  buffer if we're looking at a target-specific variable.  */
-              val = tp = allocated_variable_expand (val);
+              val = tp = allocated_variable_expand (val);/*展开内容*/
 
             /* If the new value is empty, nothing to do.  */
             vallen = strlen (val);
@@ -1305,11 +1321,13 @@ do_variable_definition (const floc *flocp, const char *varname,
 
             if (oldlen)
               {
+                /*选将即有的内容填充到alloc_value中*/
                 memcpy (alloc_value, v->value, oldlen);
                 alloc_value[oldlen] = ' ';
                 ++oldlen;
               }
 
+            /*再把展开的内容填充到alloc_value中*/
             memcpy (&alloc_value[oldlen], val, vallen + 1);
 
             free (tp);
@@ -1459,7 +1477,7 @@ do_variable_definition (const floc *flocp, const char *varname,
      invoked in places where we want to define globally visible variables,
      make sure we define this variable in the global set.  */
 
-  v = define_variable_in_set (varname, strlen (varname), p, origin,
+  v = define_variable_in_set (varname/*变量名*/, strlen (varname)/*变量名称度*/, p/*变量值*/, origin/*变量来源*/,
                               flavor == f_recursive || flavor == f_expand,
                               (target_var
                                ? current_variable_set_list->set : NULL),
@@ -1487,7 +1505,7 @@ do_variable_definition (const floc *flocp, const char *varname,
   */
 
 char *
-parse_variable_definition (const char *str, struct variable *var)
+parse_variable_definition (const char *str/*变量定义行*/, struct variable *var/*解析此行获得的变量参数*/)
 {
   const char *p = str;
   const char *end = NULL;
@@ -1504,8 +1522,10 @@ parse_variable_definition (const char *str, struct variable *var)
 
       /* If we find a comment or EOS, it's not a variable definition.  */
       if (STOP_SET (c, MAP_COMMENT|MAP_NUL))
+          /*非变量定义，返回NULL*/
         return NULL;
 
+      /*第二次遇到空格，报错，变量名称中不能包含空格*/
       if (ISBLANK (c))
         {
           /* Variable names can't contain spaces so if this is the second set
@@ -1513,6 +1533,7 @@ parse_variable_definition (const char *str, struct variable *var)
           if (end)
             return NULL;
           end = p - 1;
+          /*跳过p后面的空格*/
           NEXT_TOKEN (p);
           continue;
         }
@@ -1536,7 +1557,7 @@ parse_variable_definition (const char *str, struct variable *var)
           c = *p++;
           if (c == '=')
             {
-              var->flavor = f_simple;
+              var->flavor = f_simple;/*遇到':='符号*/
               break;
             }
           if (c == ':')
@@ -1544,12 +1565,12 @@ parse_variable_definition (const char *str, struct variable *var)
               c = *p++;
               if (c == '=')
                 {
-                  var->flavor = f_simple;
+                  var->flavor = f_simple;/*遇到'::='*/
                   break;
                 }
               if (c == ':' && *p++ == '=')
                 {
-                  var->flavor = f_expand;
+                  var->flavor = f_expand;/*遇到':::='*/
                   break;
                 }
             }
@@ -1562,13 +1583,13 @@ parse_variable_definition (const char *str, struct variable *var)
           switch (c)
             {
             case '+':
-              var->flavor = f_append;
+              var->flavor = f_append;/*遇到'+='*/
               break;
             case '?':
-              var->flavor = f_conditional;
+              var->flavor = f_conditional;/*遇到'?='*/
               break;
             case '!':
-              var->flavor = f_shell;
+              var->flavor = f_shell;/*遇到'!='*/
               break;
             default:
               goto other;
@@ -1587,6 +1608,7 @@ parse_variable_definition (const char *str, struct variable *var)
       if (end)
         return NULL;
 
+      /*支持以下语法：abc${abc} := something*/
       if (c == '$')
         {
           /* Skip any variable reference, to ensure we don't treat chars
@@ -1597,10 +1619,10 @@ parse_variable_definition (const char *str, struct variable *var)
           c = *p++;
           switch (c)
             {
-            case '(':
+            case '(':/*遇见'$('，则闭区间标记为')'*/
               closeparen = ')';
               break;
-            case '{':
+            case '{':/*遇见'${'，则闭区间标记为'}'*/
               closeparen = '}';
               break;
             case '\0':
@@ -1616,19 +1638,19 @@ parse_variable_definition (const char *str, struct variable *var)
             {
               if (*p == closeparen && --count == 0)
                 {
-                  ++p;
+                  ++p;/*遇到闭区间标记，且完全匹配，跳出*/
                   break;
                 }
               if (*p == c)
-                ++count;
+                ++count;/*又一次遇见了开区间标记，期待的遇见符号加1*/
             }
         }
     }
 
   /* We found a valid variable assignment: END points to the char after the
      end of the variable name and P points to the char after the =.  */
-  var->length = (unsigned int) (end - var->name);
-  var->value = next_token (p);
+  var->length = (unsigned int) (end - var->name);/*解析出变量名称，指明变量名长度*/
+  var->value = next_token (p);/*自此位置后，均为变量取值*/
   return (char *)p;
 }
 
@@ -1644,15 +1666,18 @@ assign_variable_definition (struct variable *v, const char *line)
   char *name;
 
   if (!parse_variable_definition (line, v))
+      /*line非变量定义行，返回NULL*/
     return NULL;
 
   /* Expand the name, so "$(foo)bar = baz" works.  */
   name = alloca (v->length + 1);
   memcpy (name, v->name, v->length);
   name[v->length] = '\0';
+  /*支持变量名称中有嵌套，执行展开*/
   v->name = allocated_variable_expand (name);
 
   if (v->name[0] == '\0')
+      /*变量名称为空，报错*/
     O (fatal, &v->fileinfo, _("empty variable name"));
 
   return v;
@@ -1684,10 +1709,11 @@ try_variable_definition (const floc *flocp, const char *line,
     v.fileinfo.filenm = 0;
 
   if (!assign_variable_definition (&v, line))
+      /*此行非变量定义行，返回*/
     return 0;
 
-  vp = do_variable_definition (flocp, v.name, v.value,
-                               origin, v.flavor, target_var);
+  vp = do_variable_definition (flocp, v.name,/*变量名*/ v.value,/*变量取值*/
+                               origin/*变量来源*/, v.flavor/*变量给值方式*/, target_var);
 
   free (v.name);
 

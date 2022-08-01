@@ -167,16 +167,16 @@ struct patdeps
 */
 struct tryrule
   {
-    struct rule *rule;
+    struct rule *rule;/*尝试的规则*/
 
     /* Stem length for this match. */
     size_t stemlen;
 
     /* Index of the target in this rule that matched the file. */
-    unsigned int matches;
+    unsigned int matches;/*采用规则中哪条target*/
 
     /* Definition order of this rule. Used to implement stable sort.*/
-    unsigned int order;
+    unsigned int order;/*规则编号*/
 
     /* Nonzero if the LASTSLASH logic was used in matching this rule. */
     char checked_lastslash;
@@ -206,12 +206,12 @@ stemlen_compare (const void *v1, const void *v2)
    DEPTH is used for debugging messages.  */
 
 static int
-pattern_search (struct file *file, int archive,
+pattern_search (struct file *file, int archive/*是否存档*/,
                 unsigned int depth, unsigned int recursions,
                 int allow_compat_rules)
 {
   /* Filename we are searching for a rule for.  */
-  const char *filename = archive ? strchr (file->name, '(') : file->name;
+  const char *filename = archive ? strchr (file->name, '(')/*存档情况下取'('后的文件名称*/ : file->name;
 
   /* Length of FILENAME.  */
   size_t namelen = strlen (filename);
@@ -300,11 +300,13 @@ pattern_search (struct file *file, int archive,
 #endif
     }
 
+  /*由lastslash获知目录路径长度*/
   pathlen = lastslash ? lastslash - filename + 1 : 0;
 
   /* First see which pattern rules match this target and may be considered.
      Put them in TRYRULES.  */
 
+  /*遍历所有规则*/
   nrules = 0;
   for (rule = pattern_rules; rule != 0; rule = rule->next)
     {
@@ -313,6 +315,7 @@ pattern_search (struct file *file, int archive,
       /* If the pattern rule has deps but no commands, ignore it.
          Users cancel built-in rules by redefining them without commands.  */
       if (rule->deps != 0 && rule->cmds == 0)
+        /*有依赖，但没有cmds的规则必然不会生成目标，故不检查它们*/
         continue;
 
       /* If this rule is in use by a parent pattern_search,
@@ -325,8 +328,10 @@ pattern_search (struct file *file, int archive,
           continue;
         }
 
+      /*遍历此规则中所有target*/
       for (ti = 0; ti < rule->num; ++ti)
         {
+          /*取规则target，target后缀*/
           const char *target = rule->targets[ti];
           const char *suffix = rule->suffixes[ti];
           char check_lastslash;
@@ -338,6 +343,7 @@ pattern_search (struct file *file, int archive,
             continue;
 
           if (rule->lens[ti] > namelen)
+              /*要生成的目标长度远大于namelen,忽略*/
             /* It can't possibly match.  */
             continue;
 
@@ -418,11 +424,13 @@ pattern_search (struct file *file, int archive,
 
   /* Bail out early if we haven't found any rules. */
   if (nrules == 0)
+      /*没有找到可用的规则*/
     goto done;
 
   /* Sort the rules to place matches with the shortest stem first. This
      way the most specific rules will be tried first. */
   if (nrules > 1)
+      /*打到了多条可用的规则*/
     qsort (tryrules, nrules, sizeof (struct tryrule), stemlen_compare);
 
   /* If we have found a matching rule that won't match all filenames,

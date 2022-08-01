@@ -485,6 +485,7 @@ extern struct rlimit stack_limit;
 
 /* Number of characters in a string constant.  Does NOT include the \0 byte.  */
 #define CSTRLEN(_s)           (sizeof (_s)-1)
+/*字符串及常量字符串长度*/
 #define STRING_SIZE_TUPLE(_s) (_s), CSTRLEN(_s)
 
 /* The number of bytes needed to represent the largest signed and unsigned
@@ -505,8 +506,8 @@ extern struct rlimit stack_limit;
 /* Specify the location of elements read from makefiles.  */
 typedef struct
   {
-    const char *filenm;
-    unsigned long lineno;
+    const char *filenm;/*文件名称*/
+    unsigned long lineno;/*行号*/
     unsigned long offset;
   } floc;
 

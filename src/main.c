@@ -183,7 +183,9 @@ int question_flag = 0;
 
 /* Nonzero means do not use any of the builtin rules (-r) / variables (-R).  */
 
+/*通过flag指明不使用内置规则*/
 int no_builtin_rules_flag = 0;
+/*通过flag指明不使用内置变量*/
 int no_builtin_variables_flag = 0;
 
 /* Nonzero means keep going even if remaking some file fails (-k).  */
@@ -401,6 +403,7 @@ static int trace_flag = 0;
 
 struct command_switch
   {
+    /*短选项名称*/
     int c;                      /* The switch character.  */
 
     enum                        /* Type of the value.  */
@@ -408,6 +411,7 @@ struct command_switch
         flag,                   /* Turn int flag on.  */
         flag_off,               /* Turn int flag off.  */
         string,                 /* One string per invocation.  */
+        /*字符串数组*/
         strlist,                /* One string per switch.  */
         filename,               /* A string containing a file name.  */
         positive_int,           /* A positive integer.  */
@@ -415,15 +419,19 @@ struct command_switch
         ignore                  /* Ignored.  */
       } type;
 
+      /*此选项对应的待设置的变量指针*/
     void *value_ptr;    /* Pointer to the value-holding variable.  */
 
     unsigned int env:1;         /* Can come from MAKEFLAGS.  */
     unsigned int toenv:1;       /* Should be put in MAKEFLAGS.  */
     unsigned int no_makefile:1; /* Don't propagate when remaking makefiles.  */
 
+    /*如果此参数不为NULL，则定为可选选项*/
     const void *noarg_value;    /* Pointer to value used if no arg given.  */
+    /*指向保存此选项默认值的变量*/
     const void *default_value;  /* Pointer to default value.  */
 
+    /*选项长名称*/
     const char *long_name;      /* Long option name.  */
   };
 
@@ -463,6 +471,7 @@ static const struct command_switch switches[] =
     /* These options take arguments.  */
     { 'C', filename, &directories, 0, 0, 0, 0, 0, "directory" },
     { 'f', filename, &makefiles, 0, 0, 0, 0, 0, "file" },
+    /*指明要include的目录列表，容许有多个*/
     { 'I', filename, &include_dirs, 1, 1, 0, 0, 0,
       "include-dir" },
     { 'j', positive_int, &arg_job_slots, 1, 1, 0, &inf_jobs, &default_job_slots,
@@ -495,14 +504,23 @@ static const struct command_switch switches[] =
 
 static struct option long_option_aliases[] =
   {
+    /*等同于-s,--silent*/
     { "quiet",          no_argument,            0, 's' },
+    /*等同于-S，--no-keep-going*/
     { "stop",           no_argument,            0, 'S' },
+    /*等同于-W，--what-if*/
     { "new-file",       required_argument,      0, 'W' },
+    /*等同于-W，--what-if*/
     { "assume-new",     required_argument,      0, 'W' },
+    /*等同于-o,--old-file*/
     { "assume-old",     required_argument,      0, 'o' },
+    /*等同于-l,--load-average*/
     { "max-load",       optional_argument,      0, 'l' },
+    /*等同于-n,--just-print*/
     { "dry-run",        no_argument,            0, 'n' },
+    /*等同于-n,--just-print*/
     { "recon",          no_argument,            0, 'n' },
+    /*等同于-f,--file*/
     { "makefile",       required_argument,      0, 'f' },
   };
 
@@ -642,7 +660,8 @@ initialize_stopchar_map (void)
 {
   int i;
 
-  stopchar_map[(int)'\0'] = MAP_NUL;
+  /*设置stopchar_map*/
+  stopchar_map[(int)'\0'] = MAP_NUL;/*空字符*/
   stopchar_map[(int)'#'] = MAP_COMMENT;
   stopchar_map[(int)';'] = MAP_SEMI;
   stopchar_map[(int)'='] = MAP_EQUALS;
@@ -656,9 +675,10 @@ initialize_stopchar_map (void)
   stopchar_map[(int)')'] = MAP_VARSEP;
   stopchar_map[(int)'$'] = MAP_VARIABLE;
 
-  stopchar_map[(int)'-'] = MAP_USERFUNC;
+  stopchar_map[(int)'-'] = MAP_USERFUNC;/*中划线被打上userfunc标记*/
   stopchar_map[(int)'_'] = MAP_USERFUNC;
 
+  /*空格与tab平等对待*/
   stopchar_map[(int)' '] = MAP_BLANK;
   stopchar_map[(int)'\t'] = MAP_BLANK;
 
@@ -677,6 +697,7 @@ initialize_stopchar_map (void)
         /* Don't mark blank characters as newline characters.  */
         stopchar_map[i] |= MAP_NEWLINE;
       else if (isalnum (i))
+          /*字每数字被打上map_userfunc标记*/
         stopchar_map[i] |= MAP_USERFUNC;
     }
 }
@@ -688,6 +709,7 @@ expand_command_line_file (const char *name)
   char *expanded = 0;
 
   if (name[0] == '\0')
+      /*name为空串，报错*/
     O (fatal, NILF, _("empty string invalid as file name"));
 
   if (name[0] == '~')
@@ -1079,13 +1101,14 @@ reset_jobserver (void)
 int
 main (int argc, char **argv)
 #else
+/*make程序入口*/
 int
 main (int argc, char **argv, char **envp)
 #endif
 {
   int makefile_status = MAKE_SUCCESS;
   struct goaldep *read_files;
-  PATH_VAR (current_directory);
+  PATH_VAR (current_directory);/*定义path变量，存入当前工作路径*/
   unsigned int restarts = 0;
   unsigned int syncing = 0;
   int argv_slots;
@@ -1107,6 +1130,7 @@ main (int argc, char **argv, char **envp)
 
   output_init (&make_sync);
 
+  /*初始化字符映射表，相当于输入字符到token的转换，但又没有那么正式*/
   initialize_stopchar_map();
 
 #ifdef SET_STACK_SIZE
@@ -1311,6 +1335,7 @@ main (int argc, char **argv, char **envp)
 #ifdef WINDOWS32
   if (getcwd_fs (current_directory, GET_PATH_MAX) == 0)
 #else
+      /*取当前工作目录*/
   if (getcwd (current_directory, GET_PATH_MAX) == 0)
 #endif
     {
@@ -1394,6 +1419,7 @@ main (int argc, char **argv, char **envp)
 
         /* If there's no equals sign it's a malformed environment.  Ignore.  */
         if (*ep == '\0')
+            /*忽略有误的环境变量*/
           continue;
 
 #ifdef WINDOWS32
@@ -1409,7 +1435,7 @@ main (int argc, char **argv, char **envp)
 #endif
 
         /* Length of the variable name, and skip the '='.  */
-        len = ep++ - envp[i];
+        len = ep++ - envp[i];/*环境变量名称长度*/
 
         /* If this is MAKE_RESTARTS, check to see if the "already printed
            the enter statement" flag is set.  */
@@ -1424,6 +1450,7 @@ main (int argc, char **argv, char **envp)
             export = v_noexport;
           }
 
+        /*定义此环境变量*/
         v = define_variable (envp[i], len, ep, o_env, 1);
 
         /* POSIX says the value of SHELL set in the makefile won't change the
@@ -1506,6 +1533,7 @@ main (int argc, char **argv, char **envp)
     int env_slots = arg_job_slots;
     arg_job_slots = INVALID_JOB_SLOTS;
 
+    /*参数解析*/
     decode_switches (argc, (const char **)argv, 0);
     argv_slots = arg_job_slots;
 
@@ -1647,7 +1675,7 @@ main (int argc, char **argv, char **envp)
   starting_directory = current_directory;
 
   /* If there were -C flags, move ourselves about.  */
-  if (directories != 0)
+  if (directories != 0)/*-C参数指定了目录*/
     {
       unsigned int i;
       for (i = 0; directories->list[i] != 0; ++i)
@@ -1663,6 +1691,7 @@ main (int argc, char **argv, char **envp)
             p[1] = '\0';
           }
 #endif
+          /*变更目录*/
           if (chdir (dir) < 0)
             pfatal_with_name (dir);
         }
@@ -1687,6 +1716,7 @@ main (int argc, char **argv, char **envp)
 #ifdef WINDOWS32
       if (getcwd_fs (current_directory, GET_PATH_MAX) == 0)
 #else
+          /*获取当前工作目录*/
       if (getcwd (current_directory, GET_PATH_MAX) == 0)
 #endif
         {
@@ -1701,6 +1731,7 @@ main (int argc, char **argv, char **envp)
         starting_directory = current_directory;
     }
 
+  /*添加变量，定义CURDIR指向当前工作目录*/
   define_variable_cname ("CURDIR", current_directory, o_file, 0);
 
   /* Validate the arg_job_slots configuration before we define MAKEFLAGS so
@@ -1745,10 +1776,12 @@ main (int argc, char **argv, char **envp)
   else
     define_variable_cname ("MAKE_COMMAND", program, o_default, 0);
 #else
-  define_variable_cname ("MAKE_COMMAND", argv[0], o_default, 0);
+  /*定义make命令对应的路径*/
+  define_variable_cname ("MAKE_COMMAND", argv[0]/*make程序*/, o_default, 0);
 #endif
   define_variable_cname ("MAKE", "$(MAKE_COMMAND)", o_default, 1);
 
+  /*指明了命令行变量，处理这些变量*/
   if (command_variables != 0)
     {
       struct command_variable *cv;
@@ -1758,6 +1791,7 @@ main (int argc, char **argv, char **envp)
 
       /* Figure out how much space will be taken up by the command-line
          variable definitions.  */
+      /*准备构造输出，先计算待输出的内容长度*/
       for (cv = command_variables; cv != 0; cv = cv->next)
         {
           v = cv->variable;
@@ -1774,10 +1808,12 @@ main (int argc, char **argv, char **envp)
       for (cv = command_variables; cv != 0; cv = cv->next)
         {
           v = cv->variable;
+          /*考虑变量名中的转义问题*/
           p = quote_for_env (p, v->name);
           if (! v->recursive)
-            *p++ = ':';
+            *p++ = ':';/*非递归定义，采用':'*/
           *p++ = '=';
+          /*输出变量值，考虑变量名中的转义问题*/
           p = quote_for_env (p, v->value);
           *p++ = ' ';
         }
@@ -1785,6 +1821,7 @@ main (int argc, char **argv, char **envp)
 
       /* Define an unchangeable variable with a name that no POSIX.2
          makefile could validly use for its own variable.  */
+      /*定义此变量，用于说明command-variables上定义了哪些变量*/
       define_variable_cname ("-*-command-variables-*-", value, o_automatic, 0);
 
       /* Define the variable; this will not override any user definition.
@@ -1793,6 +1830,7 @@ main (int argc, char **argv, char **envp)
          exported value of MAKEFLAGS.  In POSIX-pedantic mode, we cannot
          allow the user's setting of MAKEOVERRIDES to affect MAKEFLAGS, so
          a reference to this hidden variable is written instead. */
+      /*定义此变量，用于说明command-variables上定义了哪此变量*/
       define_variable_cname ("MAKEOVERRIDES", "${-*-command-variables-*-}",
                              o_env, 1);
 #ifdef VMS
@@ -1950,8 +1988,9 @@ main (int argc, char **argv, char **envp)
   define_makeflags (0, 0)->export = v_export;
 
   /* Define the default variables.  */
-  define_default_variables ();
+  define_default_variables ();/*定义默认变量*/
 
+  /*添加.DEFAULT*/
   default_file = enter_file (strcache_add (".DEFAULT"));
 
   default_goal_var = define_variable_cname (".DEFAULT_GOAL", "", o_file, 0);
@@ -1993,6 +2032,7 @@ main (int argc, char **argv, char **envp)
     int old_arg_job_slots = arg_job_slots;
 
     /* Read all the makefiles.  */
+    /*读取所有makefiles*/
     read_files = read_all_makefiles (makefiles == 0 ? 0 : makefiles->list);
 
     /* Reset switches that are taken from MAKEFLAGS so we don't get dups.  */
@@ -2849,19 +2889,24 @@ init_switches (void)
      POSIXLY_CORRECT.  Non-switch args are returned as option 1.  */
   *p++ = '-';
 
+  /*遍历make提供的所有选项*/
   for (i = 0; switches[i].c != '\0'; ++i)
     {
+      /*填充长选项名称*/
       long_options[i].name = (char *) (switches[i].long_name == 0 ? "" :
                                        switches[i].long_name);
       long_options[i].flag = 0;
-      long_options[i].val = switches[i].c;
+      long_options[i].val = switches[i].c;/*长选项标记*/
+      /*如果长选项标记是一个合法的短选项字符，则将其填充到短选项字符串中*/
       if (short_option (switches[i].c))
+        /*填充短选项*/
         *p++ = (char) switches[i].c;
       switch (switches[i].type)
         {
         case flag:
         case flag_off:
         case ignore:
+            /*针对flag,flag_off及Ignore这些，均为无参数选项*/
           long_options[i].has_arg = no_argument;
           break;
 
@@ -2871,23 +2916,28 @@ init_switches (void)
         case positive_int:
         case floating:
           if (short_option (switches[i].c))
+            /*指明此短选项要求参数*/
             *p++ = ':';
           if (switches[i].noarg_value != 0)
             {
               if (short_option (switches[i].c))
                 *p++ = ':';
+              /*此情况下，参数可以不出现*/
               long_options[i].has_arg = optional_argument;
             }
           else
+            /*必选参数*/
             long_options[i].has_arg = required_argument;
           break;
         }
     }
   *p = '\0';
+  /*下面这些选项是上面某些长选项的别名*/
   for (c = 0; c < (sizeof (long_option_aliases) /
                    sizeof (long_option_aliases[0]));
        ++c)
     long_options[i++] = long_option_aliases[c];
+  /*标记长选项结束*/
   long_options[i].name = 0;
 }
 
@@ -2900,7 +2950,7 @@ handle_non_switch_argument (const char *arg, int env)
 
   if (arg[0] == '-' && arg[1] == '\0')
     /* Ignore plain '-' for compatibility.  */
-    return;
+    return;/*如果参数以'-'开头，则跳出*/
 
 #ifdef VMS
   {
@@ -2927,6 +2977,7 @@ handle_non_switch_argument (const char *arg, int env)
       }
   }
 #endif
+  /*尝试定义命令行传入的变量*/
   v = try_variable_definition (0, arg, o_command, 0);
   if (v != 0)
     {
@@ -2935,10 +2986,12 @@ handle_non_switch_argument (const char *arg, int env)
          define_makeflags.  */
       struct command_variable *cv;
 
+      /*定义来源于cmd的variable成功，如果此变量仍未在command_variables中存在，则添加它*/
       for (cv = command_variables; cv != 0; cv = cv->next)
         if (cv->variable == v)
           break;
 
+      /*增加command变量*/
       if (! cv)
         {
           cv = xmalloc (sizeof (*cv));
@@ -2990,6 +3043,7 @@ handle_non_switch_argument (const char *arg, int env)
             memcpy (&vp[oldlen + 1], f->name, newlen + 1);
             value = vp;
           }
+        /*定义构建target*/
         define_variable_cname ("MAKECMDGOALS", value, o_default, 0);
       }
     }
@@ -3085,7 +3139,7 @@ decode_switches (int argc, const char **argv, int env)
   /* getopt does most of the parsing for us.
      First, get its vectors set up.  */
 
-  init_switches ();
+  init_switches ();/*构造长短选项需要的参数*/
 
   /* Let getopt produce error messages for the command line,
      but not for options from the environment.  */
@@ -3093,25 +3147,28 @@ decode_switches (int argc, const char **argv, int env)
   /* Reset getopt's state.  */
   optind = 0;
 
+  /*开始解析参数*/
   while (optind < argc)
     {
       const char *coptarg;
 
       /* Parse the next argument.  */
-      c = getopt_long (argc, (char *const *)argv, options, long_options, NULL);
+      c = getopt_long (argc, (char *const *)argv, options/*短选项*/, long_options, NULL);
       coptarg = optarg;
       if (c == EOF)
         /* End of arguments, or "--" marker seen.  */
         break;
       else if (c == 1)
         /* An argument not starting with a dash.  */
+        /*没有以-开头的参数认为是变量定义*/
         handle_non_switch_argument (coptarg, env);
       else if (c == '?')
         /* Bad option.  We will print a usage message and die later.
            But continue to parse the other options so the user can
            see all he did wrong.  */
-        bad = 1;
+        bad = 1;/*标记不认识的选项*/
       else
+          /*遇到其它非以上情况短选项，在switches中查找，进行c匹配*/
         for (cs = switches; cs->c != '\0'; ++cs)
           if (cs->c == c)
             {
@@ -3123,15 +3180,16 @@ decode_switches (int argc, const char **argv, int env)
 
               switch (cs->type)
                 {
-                default:
+                default:/*遇到cs设置的其它内容，abort*/
                   abort ();
 
-                case ignore:
+                case ignore:/*不考虑此选项*/
                   break;
 
                 case flag:
                 case flag_off:
                   if (doit)
+                      /*如果此type为flag，则设置为真，否则设置为假*/
                     *(int *) cs->value_ptr = cs->type == flag;
                   break;
 
@@ -3142,9 +3200,11 @@ decode_switches (int argc, const char **argv, int env)
                     break;
 
                   if (! coptarg)
+                      /*提供的为NULL，仍使用默认值*/
                     coptarg = cs->noarg_value;
                   else if (*coptarg == '\0')
                     {
+                      /*遇到空串，告警*/
                       char opt[2] = "c";
                       const char *op = opt;
 
@@ -3162,6 +3222,7 @@ decode_switches (int argc, const char **argv, int env)
 
                   if (cs->type == string)
                     {
+                      /*字符串类型，复制参数内容到value_ptr*/
                       char **val = (char **)cs->value_ptr;
                       free (*val);
                       *val = xstrdup (coptarg);
@@ -3185,6 +3246,7 @@ decode_switches (int argc, const char **argv, int env)
                                            sl->max * sizeof (char *));
                     }
                   if (cs->type == strlist)
+                      /*记录字符串数组*/
                     sl->list[sl->idx++] = xstrdup (coptarg);
                   else if (cs->c == TEMP_STDIN_OPT)
                     {
@@ -3195,6 +3257,7 @@ decode_switches (int argc, const char **argv, int env)
                       sl->list[sl->idx++] = strcache_add (coptarg);
                     }
                   else
+                      /*展开内容，并填充参数*/
                     sl->list[sl->idx++] = expand_command_line_file (coptarg);
                   sl->list[sl->idx] = 0;
                   break;
@@ -3240,6 +3303,7 @@ decode_switches (int argc, const char **argv, int env)
                     coptarg = argv[optind++];
 
                   if (doit)
+                      /*转为浮点数*/
                     *(double *) cs->value_ptr = (coptarg != 0 ? atof (coptarg)
                                                  : *(double *) cs->noarg_value);
 
@@ -3256,10 +3320,12 @@ decode_switches (int argc, const char **argv, int env)
      to be returned in order, this only happens when there is a "--"
      argument to prevent later arguments from being options.  */
   while (optind < argc)
+      /*处理非开关选项，定义为变量*/
     handle_non_switch_argument (argv[optind++], env);
 
   if (!env && (bad || print_usage_flag))
     {
+      /*显示用法，退出*/
       print_usage (bad);
       die (bad ? MAKE_FAILURE : MAKE_SUCCESS);
     }
@@ -3281,7 +3347,7 @@ decode_switches (int argc, const char **argv, int env)
    decode_switches.  */
 
 void
-decode_env_switches (const char *envar, size_t len)
+decode_env_switches (const char *envar/*环境变量名称*/, size_t len/*环境变量名称长度*/)
 {
   char *varref = alloca (2 + len + 2);
   char *value, *p, *buf;
@@ -3291,15 +3357,16 @@ decode_env_switches (const char *envar, size_t len)
   /* Get the variable's value.  */
   varref[0] = '$';
   varref[1] = '(';
-  memcpy (&varref[2], envar, len);
+  memcpy (&varref[2], envar, len);/*设置变量名称*/
   varref[2 + len] = ')';
   varref[2 + len + 1] = '\0';
-  value = variable_expand (varref);
+  value = variable_expand (varref);/*要求辅助函数展开此变量，获得其对应的值*/
 
   /* Skip whitespace, and check for an empty value.  */
-  NEXT_TOKEN (value);
+  NEXT_TOKEN (value);/*跳过起始的空格*/
   len = strlen (value);
   if (len == 0)
+      /*变量值长度为0*/
     return;
 
   /* Allocate a vector that is definitely big enough.  */
@@ -3357,9 +3424,13 @@ quote_for_env (char *out, const char *in)
   while (*in != '\0')
     {
       if (*in == '$')
+          /*遇到$,输出为$$*/
         *out++ = '$';
       else if (ISBLANK (*in) || *in == '\\')
+          /*遇到空格，‘\',采用'\'符号进行转议*/
         *out++ = '\\';
+
+      /*原样输出*/
       *out++ = *in++;
     }
 
@@ -3617,6 +3688,7 @@ print_version (void)
     /* Do it only once.  */
     return;
 
+  /*显示版本号*/
   printf ("%sGNU Make %s\n", precede, version_string);
 
   if (!remote_description || *remote_description == '\0')

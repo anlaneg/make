@@ -40,16 +40,27 @@ typedef void (*hash_map_arg_func_t) __P((void const *item, void *arg));
 
 struct hash_table
 {
+  /*指向hash桶*/
   void **ht_vec;
+  /*hash函数1（主函数）*/
   hash_func_t ht_hash_1;	/* primary hash function */
+  /*hash函数2（二号函数）*/
   hash_func_t ht_hash_2;	/* secondary hash function */
+  /*元素比对函数*/
   hash_cmp_func_t ht_compare;	/* comparison function */
+  /*hash桶数量*/
   unsigned long ht_size;	/* total number of slots (power of 2) */
+  /*容许的hash最大容量，当前为(15/16)%*/
   unsigned long ht_capacity;	/* usable slots, limited by loading-factor */
+  /*在hash中的元素数目*/
   unsigned long ht_fill;	/* items in table */
+  /*当前slot为空的数目*/
   unsigned long ht_empty_slots;	/* empty slots not including deleted slots */
+  /*统计比对失败的次数*/
   unsigned long ht_collisions;	/* # of failed calls to comparison function */
+  /*统计查询次数*/
   unsigned long ht_lookups;	/* # of queries */
+  /*统计重hash的次数*/
   unsigned int ht_rehashes;	/* # of times we've expanded table */
 };
 
@@ -77,6 +88,7 @@ extern unsigned jhash(unsigned char const *key, int n);
 extern unsigned jhash_string(unsigned char const *key);
 
 extern void *hash_deleted_item;
+/*未填充的元素或者已删除的元素*/
 #define HASH_VACANT(item) ((item) == 0 || (void *) (item) == hash_deleted_item)
 
 

@@ -75,8 +75,9 @@ gmk_expand (const char *ref)
 
 /* Register a function to be called from makefiles.  */
 void
-gmk_add_function (const char *name, gmk_func_ptr func,
-                  unsigned int min, unsigned int max, unsigned int flags)
+gmk_add_function (const char *name/*函数名称*/, gmk_func_ptr func/*函数实现函数*/,
+                  unsigned int min/*最小参数*/, unsigned int max/*最大参数*/, unsigned int flags)
 {
+    /*添加自定义函数*/
   define_new_function (reading_file, name, min, max, flags, func);
 }

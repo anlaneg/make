@@ -183,6 +183,7 @@ enter_file (const char *name)
     }
 #endif
 
+  /*查询files获得slot*/
   file_key.hname = name;
   file_slot = (struct file **) hash_find_slot (&files, &file_key);
   f = *file_slot;

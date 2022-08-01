@@ -77,6 +77,7 @@ build_vpath_lists (void)
     int save = warn_undefined_variables_flag;
     warn_undefined_variables_flag = 0;
 
+    /*尝试解析VPATH*/
     p = variable_expand ("$(strip $(VPATH))");
 
     warn_undefined_variables_flag = save;
@@ -110,6 +111,7 @@ build_vpath_lists (void)
     int save = warn_undefined_variables_flag;
     warn_undefined_variables_flag = 0;
 
+    /*尝试解析GPATH*/
     p = variable_expand ("$(strip $(GPATH))");
 
     warn_undefined_variables_flag = save;

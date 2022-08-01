@@ -70,6 +70,7 @@ static struct pspec default_pattern_rules[] =
         "$(AR) $(ARFLAGS) $@ $<" },
 
 #else
+        /*ar打包规则*/
     { "(%)", "%",
         "$(AR) $(ARFLAGS) $@ $<" },
 #endif
@@ -81,6 +82,7 @@ static struct pspec default_pattern_rules[] =
         "$(CP) $< $@" },
 
 #endif
+        /**.out目标copy生成*/
     { "%.out", "%",
         "@rm -f $@ \n cp $< $@" },
 
@@ -128,6 +130,7 @@ static struct pspec default_terminal_rules[] =
     { 0, 0, 0 }
   };
 
+/*默认后缀规则*/
 static const char *default_suffix_rules[] =
   {
 #ifdef VMS
@@ -398,6 +401,7 @@ static const char *default_suffix_rules[] =
     0, 0,
   };
 
+/*默认的变量及其对应的默认值，偶数下标为变量名，奇数下标为变量值*/
 static const char *default_variables[] =
   {
 #ifdef VMS
@@ -708,6 +712,7 @@ install_default_suffix_rules (void)
   if (no_builtin_rules_flag)
     return;
 
+  /*填充后缀规则*/
   for (s = default_suffix_rules; *s != 0; s += 2)
     {
       struct file *f = enter_file (strcache_add (s[0]));
@@ -715,7 +720,7 @@ install_default_suffix_rules (void)
       assert (f->cmds == 0);
       f->cmds = xmalloc (sizeof (struct commands));
       f->cmds->fileinfo.filenm = 0;
-      f->cmds->commands = xstrdup (s[1]);
+      f->cmds->commands = xstrdup (s[1]);/*此后缀规则对应的命令*/
       f->cmds->command_lines = 0;
       f->cmds->recipe_prefix = RECIPEPREFIX_DEFAULT;
       f->builtin = 1;
@@ -731,11 +736,14 @@ install_default_implicit_rules (void)
   struct pspec *p;
 
   if (no_builtin_rules_flag)
+      /*拒绝隐式规则，直接返回*/
     return;
 
+  /*遍历默认pattern,将其加入*/
   for (p = default_pattern_rules; p->target != 0; ++p)
     install_pattern_rule (p, 0);
 
+  /*遍历默认terminal规则，则其转换为rule加入*/
   for (p = default_terminal_rules; p->target != 0; ++p)
     install_pattern_rule (p, 1);
 }
@@ -746,10 +754,12 @@ define_default_variables (void)
   const char **s;
 
   if (no_builtin_variables_flag)
+      /*未开启默认变量，不初始化*/
     return;
 
+  /*遍历并初始化default变量*/
   for (s = default_variables; *s != 0; s += 2)
-    define_variable (s[0], strlen (s[0]), s[1], o_default, 1);
+    define_variable (s[0]/*默认变量名称*/, strlen (s[0]), s[1]/*默认值*/, o_default, 1);
 }
 
 void

@@ -49,8 +49,11 @@ struct passwd *getpwnam (char *name);
 struct ebuffer
   {
     char *buffer;       /* Start of the current line in the buffer.  */
+    /*指明下次开始查找的位置*/
     char *bufnext;      /* Start of the next line in the buffer.  */
+    /*buffer起始指针*/
     char *bufstart;     /* Start of the entire buffer.  */
+    /*申请的buffer大小*/
     size_t size;        /* Malloc'd size of buffer. */
     FILE *fp;           /* File, or NULL if this is an internal buffer.  */
     floc floc;          /* Info on the file in fp (if any).  */
@@ -61,10 +64,10 @@ struct ebuffer
 struct vmodifiers
   {
     unsigned int assign_v:1;
-    unsigned int define_v:1;
-    unsigned int undefine_v:1;
-    unsigned int override_v:1;
-    unsigned int private_v:1;
+    unsigned int define_v:1;/*是否define关键字修饰*/
+    unsigned int undefine_v:1;/*是否undefine关键字修饰*/
+    unsigned int override_v:1;/*是否override关键字修饰*/
+    unsigned int private_v:1;/*是否private关键字修饰*/
     enum variable_export export_v ENUM_BITFIELD (2);
   };
 
@@ -119,7 +122,7 @@ static const char *default_include_directories[] =
   };
 
 /* List of directories to search for include files in  */
-
+/*要包含的目录*/
 static const char **include_directories;
 
 /* Maximum length of an element of the above.  */
@@ -196,6 +199,7 @@ read_all_makefiles (const char **makefiles)
       int save = warn_undefined_variables_flag;
       warn_undefined_variables_flag = 0;
 
+      /*尝试取makefiles变量*/
       value = allocated_variable_expand ("$(MAKEFILES)");
 
       warn_undefined_variables_flag = save;
@@ -205,6 +209,7 @@ read_all_makefiles (const char **makefiles)
        MAKEFILES is updated for finding remaining tokens.  */
     p = value;
 
+    /*遍历所有文件*/
     while ((name = find_next_token ((const char **)&p, &length)) != 0)
       {
         if (*p != '\0')
@@ -233,6 +238,7 @@ read_all_makefiles (const char **makefiles)
 
   /* If there were no -f switches, try the default names.  */
 
+  /*没有指定文件，尝试默认文件名称*/
   if (num_makefiles == 0)
     {
       static const char *default_makefiles[] =
@@ -253,10 +259,12 @@ read_all_makefiles (const char **makefiles)
 #endif /* VMS */
       const char **p = default_makefiles;
       while (*p != 0 && !file_exists_p (*p))
+          /*默认文件不存在，尝试下一个文件*/
         ++p;
 
       if (*p != 0)
         {
+          /*非常幸运，找到了一个Makefile，评估此文件*/
           eval_makefile (*p, 0);
           if (errno)
             perror_with_name ("", *p);
@@ -308,7 +316,7 @@ restore_conditionals (struct conditionals *saved)
 }
 
 static struct goaldep *
-eval_makefile (const char *filename, unsigned short flags)
+eval_makefile (const char *filename/*makefile名称,此文件在当前目录存在*/, unsigned short flags)
 {
   struct goaldep *deps;
   struct ebuffer ebuf;
@@ -324,6 +332,7 @@ eval_makefile (const char *filename, unsigned short flags)
   ebuf.floc.lineno = 1;
   ebuf.floc.offset = 0;
 
+  /*当前需要verbose输出*/
   if (ISDB (DB_VERBOSE))
     {
       printf (_("Reading makefile '%s'"), filename);
@@ -344,12 +353,14 @@ eval_makefile (const char *filename, unsigned short flags)
      in which case it was already done.  */
   if (!(flags & RM_NO_TILDE) && filename[0] == '~')
     {
+      /*文件名中有~符号，执行展开*/
       expanded = tilde_expand (filename);
       if (expanded != 0)
         filename = expanded;
     }
 
   errno = 0;
+  /*尝试打开文件filename*/
   ENULLLOOP (ebuf.fp, fopen (filename, "r"));
   deps->error = errno;
 
@@ -364,6 +375,7 @@ eval_makefile (const char *filename, unsigned short flags)
 #endif
     case ENOMEM:
       {
+          /*打开文件失败，错误原因为无内存，报错*/
         const char *err = strerror (deps->error);
         OS (fatal, reading_file, "%s", err);
       }
@@ -374,18 +386,22 @@ eval_makefile (const char *filename, unsigned short flags)
      makefile search path for this makefile.  */
   if (ebuf.fp == NULL && deps->error == ENOENT && (flags & RM_INCLUDED)
       && *filename != '/' && include_directories)
+      /*文件名称中没有filename,且有include_directories被定义，在这此目录中进行查找*/
     for (const char **dir = include_directories; *dir != NULL; ++dir)
       {
+        /*在新的目录中进行查找*/
         const char *included = concat (3, *dir, "/", filename);
 
         ENULLLOOP(ebuf.fp, fopen (included, "r"));
         if (ebuf.fp)
           {
+            /*找到了，跳出*/
             filename = included;
             break;
           }
         if (errno != ENOENT)
           {
+            /*发生了其它错误，非文件不存在原因，跳出*/
             filename = included;
             deps->error = errno;
             break;
@@ -393,6 +409,7 @@ eval_makefile (const char *filename, unsigned short flags)
       }
 
   /* Enter the final name for this makefile as a goaldep.  */
+  /*添加此文件名*/
   filename = strcache_add (filename);
   deps->file = lookup_file (filename);
   if (deps->file == 0)
@@ -432,11 +449,13 @@ eval_makefile (const char *filename, unsigned short flags)
   ebuf.size = 200;
   ebuf.buffer = ebuf.bufnext = ebuf.bufstart = xmalloc (ebuf.size);
 
+  /*保存全局变量reading_file*/
   curfile = reading_file;
   reading_file = &ebuf.floc;
 
   eval (&ebuf, !(flags & RM_NO_DEFAULT_GOAL));
 
+  /*还原全局变量reading_file*/
   reading_file = curfile;
 
   fclose (ebuf.fp);
@@ -505,8 +524,9 @@ parse_var_assignment (const char *line, int targvar, struct vmodifiers *vmod)
   memset (vmod, '\0', sizeof (*vmod));
 
   /* Find the start of the next token.  If there isn't one we're done.  */
-  NEXT_TOKEN (line);
+  NEXT_TOKEN (line);/*将行首的空格去除掉*/
   if (*line == '\0')
+      /*去除掉行首的空格后，此行变身为空行了，直接返回line*/
     return (char *) line;
 
   p = line;
@@ -516,26 +536,33 @@ parse_var_assignment (const char *line, int targvar, struct vmodifiers *vmod)
       const char *p2;
       struct variable v;
 
+      /*将p按变量进行解析*/
       p2 = parse_variable_definition (p, &v);
 
       /* If this is a variable assignment, we're done.  */
       if (p2)
+          /*确认这一行是一个变量赋值，p2指向的是value*/
         break;
 
       /* It's not a variable; see if it's a modifier.  */
-      p2 = end_of_token (p);
-      wlen = p2 - p;
+      p2 = end_of_token (p);/*跳过一个token*/
+      wlen = p2 - p;/*空字符长度*/
 
       if (word1eq ("export"))
+          /*遇到关键字export,注意这里并不检查是否之前已遇到过*/
         vmod->export_v = v_export;
       else if (word1eq ("unexport"))
+          /*遇到关键字unexport*/
         vmod->export_v = v_noexport;
       else if (word1eq ("override"))
+          /*遇到关键字override*/
         vmod->override_v = 1;
       else if (word1eq ("private"))
+          /*遇到关键字private*/
         vmod->private_v = 1;
       else if (!targvar && word1eq ("define"))
         {
+          /*遇到关键字define*/
           /* We can't have modifiers after 'define' */
           vmod->define_v = 1;
           p = next_token (p2);
@@ -543,6 +570,7 @@ parse_var_assignment (const char *line, int targvar, struct vmodifiers *vmod)
         }
       else if (!targvar && word1eq ("undefine"))
         {
+          /*遇到关键字undefine*/
           /* We can't have modifiers after 'undefine' */
           vmod->undefine_v = 1;
           p = next_token (p2);
@@ -550,12 +578,13 @@ parse_var_assignment (const char *line, int targvar, struct vmodifiers *vmod)
         }
       else
         /* Not a variable or modifier: this is not a variable assignment.  */
+          /*遇到非variable或者modifier的行*/
         return (char *) line;
 
       /* It was a modifier.  Try the next word.  */
-      p = next_token (p2);
+      p = next_token (p2); /*取下一个token*/
       if (*p == '\0')
-        return (char *) line;
+        return (char *) line;/*下一个token为空，则为非variable或modifier行*/
     }
 
   /* Found a variable assignment or undefine.  */
@@ -642,6 +671,7 @@ eval (struct ebuffer *ebuf, int set_default)
 
       /* If there is nothing left to eval, we're done.  */
       if (nlines < 0)
+          /*读取新行失败，跳出*/
         break;
 
       line = ebuf->buffer;
@@ -649,6 +679,7 @@ eval (struct ebuffer *ebuf, int set_default)
       /* If this is the first line, check for a UTF-8 BOM and skip it.  */
       if (ebuf->floc.lineno == 1)
         {
+          /*首行，跳过UTF-8 BOM*/
           unsigned char *ul = (unsigned char *) line;
           if (ul[0] == 0xEF && ul[1] == 0xBB && ul[2] == 0xBF)
             {
@@ -665,14 +696,17 @@ eval (struct ebuffer *ebuf, int set_default)
         }
       /* If this line is empty, skip it.  */
       if (line[0] == '\0')
+          /*跳过空行*/
         continue;
 
+      /*获取此行字符串长度*/
       linelen = strlen (line);
 
       /* Check for a shell command line first.
          If it is not one, we can stop treating cmd_prefix specially.  */
       if (line[0] == cmd_prefix)
         {
+          /*确定此行是'\t'开头，检查当前是否有targets,如果无，则忽略此行*/
           if (no_targets)
             /* Ignore the commands in a rule with no targets.  */
             continue;
@@ -694,9 +728,12 @@ eval (struct ebuffer *ebuf, int set_default)
                  Skip the initial command prefix character.  */
               if (linelen + commands_idx > commands_len)
                 {
+                  /*继续增大commands数组*/
                   commands_len = (linelen + commands_idx) * 2;
                   commands = xrealloc (commands, commands_len);
                 }
+
+              /*记录此commands*/
               memcpy (&commands[commands_idx], line + 1, linelen - 1);
               commands_idx += linelen - 1;
               commands[commands_idx++] = '\n';
@@ -715,6 +752,8 @@ eval (struct ebuffer *ebuf, int set_default)
           /* Don't need xrealloc: we don't need to preserve the content.  */
           collapsed = xmalloc (collapsed_length);
         }
+
+      /*原内容复制到collapsed*/
       strcpy (collapsed, line);
       /* Collapse continuation lines.  */
       collapse_continuations (collapsed);
@@ -729,6 +768,7 @@ eval (struct ebuffer *ebuf, int set_default)
       p = parse_var_assignment (p, 0, &vmod);
       if (vmod.assign_v)
         {
+          /*p指向的这一行为赋值或者modifier行*/
           struct variable *v;
           enum variable_origin origin = vmod.override_v ? o_override : o_file;
 
@@ -1035,6 +1075,7 @@ eval (struct ebuffer *ebuf, int set_default)
         switch (wtype)
           {
           case w_eol:
+              /*内容结束*/
             if (cmdleft != 0)
               O (fatal, fstart, _("missing rule before recipe"));
             /* This line contained something but turned out to be nothing
@@ -1352,6 +1393,7 @@ remove_comments (char *line)
 {
   char *comment;
 
+  /*将注释清零*/
   comment = find_map_unquote (line, MAP_COMMENT|MAP_VARIABLE);
 
   if (comment != 0)
@@ -1984,8 +2026,8 @@ static void
 record_files (struct nameseq *filenames, int are_also_makes,
               const char *pattern,
               const char *pattern_percent, char *depstr,
-              unsigned int cmds_started, char *commands,
-              size_t commands_idx, int two_colon,
+              unsigned int cmds_started, char *commands/*target命令*/,
+              size_t commands_idx/*target命令数目*/, int two_colon,
               char prefix, const floc *flocp)
 {
   struct commands *cmds;
@@ -2399,6 +2441,7 @@ find_char_unquote (char *string, int stop)
       p = strchr(p, stop);
 
       if (!p)
+          /*没有找到stop符号，返回NULL*/
         return NULL;
 
       if (p > string && p[-1] == '\\')
@@ -2503,30 +2546,34 @@ find_percent_cached (const char **string)
 
   /* If there is no % or there is but it's not escaped, reuse this string.  */
   if (!p || p == *string || p[-1] != '\\')
+    /*未查找到%号或者%号位于字符串首位，或者%号前无转义字符，直接返回p做为后缀*/
     return p;
 
   /* We must create a new cached string with backslashes compressed.  */
   slen = strlen (*string);
   new = alloca (slen + 1);
   memcpy (new, *string, slen + 1);
-  np = new + (p - *string);
+  np = new + (p - *string);/*np的位置为新内存的%号所在位置*/
 
   do
     {
       /* Remember where the percent is.  */
       char *pp = np;
+      /*由上面的检查可知，np[-1]='\',故从np[-2]开始向前检查起*/
       int i = -2;
 
       /* This % is preceded by a backslash; search for more backslashes.  */
       while (&np[i] >= new && np[i] == '\\')
         --i;
+
+      /*np[i]不为'\\',故i执行加1*/
       ++i;
 
       /* The number of backslashes is -I.  Copy the string over itself to
          swallow half of them.  */
       {
         /* Avoid arithmetic conversion of negative values to unsigned.  */
-        int hi = -(i/2);
+        int hi = -(i/2);/*转为正数，由于转义总是成对出现，故这里除以2*/
         memmove (&pp[i], &pp[i/2], (slen - (pp - new)) + hi + 1);
       }
 
@@ -2536,8 +2583,10 @@ find_percent_cached (const char **string)
 
       /* If all backslashes quoted each other then % was unquoted.  */
       if (i % 2 == 0)
+          /*成对出现，恰好%没有被转义，跳出*/
         break;
 
+      /*%被转义，向后继续查询可能的%号*/
       np = strchr (np, '%');
     }
   while (np && np[-1] == '\\');
@@ -2569,6 +2618,7 @@ readstring (struct ebuffer *ebuf)
 
   /* If there is nothing left in this buffer, return 0.  */
   if (ebuf->bufnext >= ebuf->bufstart + ebuf->size)
+      /*内容不足，返回-1*/
     return -1;
 
   /* Set up a new starting point for the buffer, and find the end of the
@@ -2586,15 +2636,20 @@ readstring (struct ebuffer *ebuf)
       p = eol = strchr (eol , '\n');
       if (!eol)
         {
+          /*自ebuf->bufnext开始查找'\n'失败，返回0，更新ebuf->bufnext为特殊值*/
           ebuf->bufnext = ebuf->bufstart + ebuf->size + 1;
           return 0;
         }
 
       /* Found a newline; if it's escaped continue; else we're done.  */
       while (p > bol && *(--p) == '\\')
+          /*找到了一个新行，检查其是否为转义*/
         backslash = !backslash;
       if (!backslash)
+          /*确认没有针对换行符进行转义，跳出*/
         break;
+
+      /*确认当才找到的换行为被转义了，继续查找下一个*/
       ++eol;
     }
 
@@ -2605,6 +2660,7 @@ readstring (struct ebuffer *ebuf)
   return 0;
 }
 
+/*自ebuf关联的file中读取一行数据*/
 static long
 readline (struct ebuffer *ebuf)
 {
@@ -2617,6 +2673,7 @@ readline (struct ebuffer *ebuf)
      warrant different functions.  Do the Right Thing.  */
 
   if (!ebuf->fp)
+      /*ebuf无关联的file,自ebuf中进行内容读取*/
     return readstring (ebuf);
 
   /* When reading from a file, we always start over at the beginning of the
@@ -2626,12 +2683,14 @@ readline (struct ebuffer *ebuf)
   end = p + ebuf->size;
   *p = '\0';
 
+  /*自文件中读取数据（读取长度由buffer可用长度确定）*/
   while (fgets (p, (int) (end - p), ebuf->fp) != 0)
     {
       char *p2;
       size_t len;
       int backslash;
 
+      /*读取的内容长度*/
       len = strlen (p);
       if (len == 0)
         {
@@ -2652,6 +2711,7 @@ readline (struct ebuffer *ebuf)
       /* If the last char isn't a newline, the whole line didn't fit into the
          buffer.  Get some more buffer and try again.  */
       if (p[-1] != '\n')
+          /*读取的内容最后一个字符非换行，读更多内容*/
         goto more_buffer;
 
       /* We got a newline, so add one to the count of lines.  */
@@ -2662,6 +2722,7 @@ readline (struct ebuffer *ebuf)
          the CR.  */
       if ((p - start) > 1 && p[-2] == '\r')
         {
+          /*移除掉'\r\n'前面的'\r'*/
           --p;
           memmove (p-1, p, strlen (p) + 1);
         }
@@ -2691,7 +2752,7 @@ readline (struct ebuffer *ebuf)
     more_buffer:
       {
         size_t off = p - start;
-        ebuf->size *= 2;
+        ebuf->size *= 2;/*扩大buffer容量，并进行realloc*/
         start = ebuf->buffer = ebuf->bufstart = xrealloc (start, ebuf->size);
         p = start + off;
         end = start + ebuf->size;
@@ -2699,6 +2760,7 @@ readline (struct ebuffer *ebuf)
       }
     }
 
+  /*如果读取文件过程中发生错误，报错*/
   if (ferror (ebuf->fp))
     pfatal_with_name (ebuf->floc.filenm);
 
@@ -2739,6 +2801,7 @@ get_next_mword (char *buffer, char **startp, size_t *length)
 
   /* Skip any leading whitespace.  */
   while (ISSPACE (*p))
+      /*跳过前导的空格*/
     ++p;
 
   beg = p;
@@ -2748,25 +2811,30 @@ get_next_mword (char *buffer, char **startp, size_t *length)
   switch (c)
     {
     case '\0':
+        /*空行*/
       wtype = w_eol;
       goto done;
 
     case ';':
+        /*遇到分号*/
       wtype = w_semicolon;
       goto done;
 
     case '=':
+        /*遇到等号*/
       wtype = w_varassign;
       goto done;
 
     case ':':
       if (*p == '=')
         {
+          /*遇到':='*/
           ++p;
           wtype = w_varassign; /* := */
         }
       else if (*p == ':')
         {
+          /*遇到::=*/
           ++p;
           if (p[1] == '=')
             {
@@ -2774,9 +2842,11 @@ get_next_mword (char *buffer, char **startp, size_t *length)
               wtype = w_varassign; /* ::= */
             }
           else
+              /*遇到'::'*/
             wtype = w_dcolon;
         }
       else
+          /*遇到':'*/
         wtype = w_colon;
       goto done;
 
@@ -2785,10 +2855,12 @@ get_next_mword (char *buffer, char **startp, size_t *length)
         {
           ++p;
           if (*p != ':')
+              /*遇到'&:'*/
             wtype = w_ampcolon; /* &: */
           else
             {
               ++p;
+              /*遇到‘&::'*/
               wtype = w_ampdcolon; /* &:: */
             }
           goto done;
@@ -2801,6 +2873,7 @@ get_next_mword (char *buffer, char **startp, size_t *length)
       if (*p == '=')
         {
           ++p;
+          /*遇到'+=','?=','!='*/
           wtype = w_varassign; /* += or ?= or != */
           goto done;
         }
@@ -2825,6 +2898,7 @@ get_next_mword (char *buffer, char **startp, size_t *length)
       int count;
 
       if (END_OF_TOKEN (c))
+          /*c是一个token终结符*/
         goto done_word;
 
       switch (c)
@@ -2846,6 +2920,7 @@ get_next_mword (char *buffer, char **startp, size_t *length)
         case '$':
           c = *(p++);
           if (c == '$')
+              /*遇到'$$'*/
             break;
           if (c == '\0')
             goto done_word;
@@ -2862,6 +2937,7 @@ get_next_mword (char *buffer, char **startp, size_t *length)
             /* This is a single-letter variable reference.  */
             break;
 
+          /*查找闭区间*/
           for (count=0; *p != '\0'; ++p)
             {
               if (*p == c)
@@ -2933,6 +3009,7 @@ construct_include_path (const char **arg_dirs)
   /* Compute the number of pointers we need in the table.  */
   idx = sizeof (default_include_directories) / sizeof (const char *);
   if (arg_dirs)
+      /*计算上default include direction,获知目录总数*/
     for (cpp = arg_dirs; *cpp != 0; ++cpp)
       ++idx;
 
@@ -2941,6 +3018,7 @@ construct_include_path (const char **arg_dirs)
   ++idx;
 #endif
 
+  /*申请内存，用于存放目录名称指针*/
   dirs = xmalloc (idx * sizeof (const char *));
 
   idx = 0;
@@ -2951,12 +3029,14 @@ construct_include_path (const char **arg_dirs)
      Remember the maximum string length.  */
 
   if (arg_dirs)
+      /*遍历提供的要包含的目录*/
     while (*arg_dirs != 0)
       {
         const char *dir = *(arg_dirs++);
         char *expanded = 0;
         int e;
 
+        /*指明不包含的目录*/
         if (dir[0] == '-' && dir[1] == '\0')
           {
             disable = 1;
@@ -2967,20 +3047,23 @@ construct_include_path (const char **arg_dirs)
 
         if (dir[0] == '~')
           {
-            expanded = tilde_expand (dir);
+            expanded = tilde_expand (dir);/*展开目录*/
             if (expanded != 0)
               dir = expanded;
           }
 
+        /*调用stat获知目录信息*/
         EINTRLOOP (e, stat (dir, &stbuf));
         if (e == 0 && S_ISDIR (stbuf.st_mode))
           {
+            /*确认路径为目录，丢掉结尾的'/'符号*/
             size_t len = strlen (dir);
             /* If dir name is written with trailing slashes, discard them.  */
             while (len > 1 && dir[len - 1] == '/')
               --len;
             if (len > max_incl_len)
               max_incl_len = len;
+            /*目录名称合入到指针数组*/
             dirs[idx++] = strcache_add_len (dir, len);
           }
 
@@ -3007,6 +3090,7 @@ construct_include_path (const char **arg_dirs)
             max_incl_len = len;
         }
 #endif
+      /*遍历默认要include的目录*/
       for (cpp = default_include_directories; *cpp != 0; ++cpp)
         {
           int e;
@@ -3014,6 +3098,7 @@ construct_include_path (const char **arg_dirs)
           EINTRLOOP (e, stat (*cpp, &stbuf));
           if (e == 0 && S_ISDIR (stbuf.st_mode))
             {
+              /*确认是目录后，将其加入到dirs指针数组中*/
               size_t len = strlen (*cpp);
               /* If dir name is written with trailing slashes, discard them.  */
               while (len > 1 && (*cpp)[len - 1] == '/')
@@ -3029,7 +3114,10 @@ construct_include_path (const char **arg_dirs)
 
   /* Now add each dir to the .INCLUDE_DIRS variable.  */
 
+  /*增加变量定义*/
   do_variable_definition (NILF, ".INCLUDE_DIRS", "", o_default, f_simple, 0);
+
+  /*将dirs内容append到此变量中*/
   for (cpp = dirs; *cpp != 0; ++cpp)
     do_variable_definition (NILF, ".INCLUDE_DIRS", *cpp,
                             o_default, f_append, 0);

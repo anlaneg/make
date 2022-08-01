@@ -42,16 +42,19 @@ void
 hash_init (struct hash_table *ht, unsigned long size,
            hash_func_t hash_1, hash_func_t hash_2, hash_cmp_func_t hash_cmp)
 {
+  /*ht_size为 size的2的N次方*/
   ht->ht_size = round_up_2 (size);
   ht->ht_empty_slots = ht->ht_size;
   ht->ht_vec = CALLOC (void *, ht->ht_size);
   if (ht->ht_vec == 0)
     {
+      /*申请内存失败，报错*/
       fprintf (stderr, _("can't allocate %lu bytes for hash table: memory exhausted"),
                ht->ht_size * (unsigned long) sizeof (void *));
       exit (MAKE_TROUBLE);
     }
 
+  /*容量为ht_size的93.75%*/
   ht->ht_capacity = ht->ht_size - (ht->ht_size / 16); /* 93.75% loading factor */
   ht->ht_fill = 0;
   ht->ht_collisions = 0;
@@ -68,6 +71,7 @@ void
 hash_load (struct hash_table *ht, void *item_table,
            unsigned long cardinality, unsigned long size)
 {
+    /*遍历item_table,将元素加入到ht*/
   char *items = (char *) item_table;
   while (cardinality--)
     {
@@ -87,16 +91,19 @@ hash_find_slot (struct hash_table *ht, const void *key)
   void **slot;
   void **deleted_slot = 0;
   unsigned int hash_2 = 0;
+  /*计算hashcode 1*/
   unsigned int hash_1 = (*ht->ht_hash_1) (key);
 
-  ht->ht_lookups++;
+  ht->ht_lookups++;/*增加查询次数*/
   for (;;)
     {
       hash_1 &= (ht->ht_size - 1);
       slot = &ht->ht_vec[hash_1];
 
       if (*slot == 0)
+          /*此slot为空，如果deleted为空，则返回此slot,否则返回delete_slot*/
         return (deleted_slot ? deleted_slot : slot);
+
       if (*slot == hash_deleted_item)
         {
           if (deleted_slot == 0)
@@ -105,11 +112,18 @@ hash_find_slot (struct hash_table *ht, const void *key)
       else
         {
           if (key == *slot)
+              /*key与slot地址相等，直接返回*/
             return slot;
+
+          /*通过compare函数比对发现一直，直接返回*/
           if ((*ht->ht_compare) (key, *slot) == 0)
             return slot;
+
+          /*统计hash比对失败次数*/
           ht->ht_collisions++;
         }
+
+      /*hash1匹配失败，采用hash2计算，并合上hash2后继续比对*/
       if (!hash_2)
           hash_2 = (*ht->ht_hash_2) (key) | 1;
       hash_1 += hash_2;
@@ -126,6 +140,7 @@ hash_find_item (struct hash_table *ht, const void *key)
 void *
 hash_insert (struct hash_table *ht, const void *item)
 {
+    /*找到可存入的slot*/
   void **slot = hash_find_slot (ht, item);
   const void *old_item = *slot;
   hash_insert_at (ht, item, slot);
@@ -133,23 +148,30 @@ hash_insert (struct hash_table *ht, const void *item)
 }
 
 void *
-hash_insert_at (struct hash_table *ht, const void *item, const void *slot)
+hash_insert_at (struct hash_table *ht, const void *item/*要加入的元素*/, const void *slot/*要添加的桶*/)
 {
   const void *old_item = *(void **) slot;
   if (HASH_VACANT (old_item))
     {
-      ht->ht_fill++;
+      ht->ht_fill++;/*hash表中元素数增加*/
       if (old_item == 0)
-        ht->ht_empty_slots--;
-      old_item = item;
+        ht->ht_empty_slots--;/*空的slot减少*/
+      old_item = item;/*目的是啥？*/
     }
+
+  /*这里直接填充*/
   *(void const **) slot = item;
+
+  /*元素数已达到预设容量，进行扩容，并重新hash*/
   if (ht->ht_empty_slots < ht->ht_size - ht->ht_capacity)
     {
+      /*先将hash进行重分布*/
       hash_rehash (ht);
+      /*再返回item被新加入的位置*/
       return (void *) hash_find_slot (ht, item);
     }
   else
+      /*直接返回slot*/
     return (void *) slot;
 }
 
@@ -166,12 +188,13 @@ hash_delete_at (struct hash_table *ht, const void *slot)
   void *item = *(void **) slot;
   if (!HASH_VACANT (item))
     {
+      /*将元素直接标记为，已删除*/
       *(void const **) slot = hash_deleted_item;
       ht->ht_fill--;
-      return item;
+      return item;/*返回旧的元素*/
     }
   else
-    return 0;
+    return 0;/*元素为空，返回NULL*/
 }
 
 void
@@ -250,8 +273,8 @@ hash_map_arg (struct hash_table *ht, hash_map_arg_func_t map, void *arg)
 static void
 hash_rehash (struct hash_table *ht)
 {
-  unsigned long old_ht_size = ht->ht_size;
-  void **old_vec = ht->ht_vec;
+  unsigned long old_ht_size = ht->ht_size;/*记录旧的hash表大小*/
+  void **old_vec = ht->ht_vec;/*记录旧的桶指针*/
   void **ovp;
 
   if (ht->ht_fill >= ht->ht_capacity)
@@ -260,8 +283,9 @@ hash_rehash (struct hash_table *ht)
       ht->ht_capacity = ht->ht_size - (ht->ht_size >> 4);
     }
   ht->ht_rehashes++;
-  ht->ht_vec = CALLOC (void *, ht->ht_size);
+  ht->ht_vec = CALLOC (void *, ht->ht_size);/*重新申请新的hash桶*/
 
+  /*hash重分布*/
   for (ovp = old_vec; ovp < &old_vec[old_ht_size]; ovp++)
     {
       if (! HASH_VACANT (*ovp))
@@ -315,6 +339,12 @@ hash_dump (struct hash_table *ht, void **vector_0, qsort_cmp_t compare)
 static unsigned long
 round_up_2 (unsigned long n)
 {
+    /*设从最高位到最低位编号为0，...64,现在假设数字n的'1'的最高索引为i
+     * 则以下操作 n | (n >> 1) 即为 i,i+1将为‘1’
+     *          n | (n >> 2) 即为 i,i+1,i+2,i+3将为‘1’
+     *          ....
+     *          n | (n >> 16) 即为i,i+1,....i+32将位‘1’
+     * */
   n |= (n >> 1);
   n |= (n >> 2);
   n |= (n >> 4);

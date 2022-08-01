@@ -84,7 +84,7 @@ struct option
 #endif
   /* has_arg can't be an enum because some compilers complain about
      type mismatches in all the code that assumes it is an int.  */
-  int has_arg;
+  int has_arg;/*指明是否有参数*/
   int *flag;
   int val;
 };

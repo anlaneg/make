@@ -2843,11 +2843,13 @@ construct_command_argv_internal (char *line, char **restp, const char *shell,
   if (*line == '\0')
     return 0;
 
+  /*为shellflags提供默认值*/
   if (shellflags == 0)
     shellflags = posix_pedantic ? "-ec" : "-c";
 
   /* See if it is safe to parse commands internally.  */
   if (shell == 0)
+      /*如无指定，则使用默认shell*/
     shell = default_shell;
 #ifdef WINDOWS32
   else if (strcmp (shell, default_shell))
@@ -3653,6 +3655,7 @@ construct_command_argv (char *line, char **restp, struct file *file,
     int save = warn_undefined_variables_flag;
     warn_undefined_variables_flag = 0;
 
+    /*展开shell变量*/
     shell = allocated_variable_expand_for_file ("$(SHELL)", file);
 #ifdef WINDOWS32
     /*
@@ -3710,7 +3713,9 @@ construct_command_argv (char *line, char **restp, struct file *file,
     }
 #endif /* __EMX__ */
 
+    /*展开flags*/
     shellflags = allocated_variable_expand_for_file ("$(.SHELLFLAGS)", file);
+    /*展开ifs*/
     ifs = allocated_variable_expand_for_file ("$(IFS)", file);
 
     warn_undefined_variables_flag = save;

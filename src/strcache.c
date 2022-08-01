@@ -29,9 +29,13 @@ typedef unsigned short int sc_buflen_t;
 
 struct strcache {
   struct strcache *next;    /* The next block of strings.  Must be first!  */
+  /*下次填充位置*/
   sc_buflen_t end;          /* Offset to the beginning of free space.  */
+  /*buffer中的空闲长度*/
   sc_buflen_t bytesfree;    /* Free space left in this buffer.  */
+  /*填充到buffer中的string数目，例如有两个string*/
   sc_buflen_t count;        /* # of strings in this buffer (for stats).  */
+  /*string内容*/
   char buffer[1];           /* The buffer comes after this.  */
 };
 
@@ -47,7 +51,9 @@ struct strcache {
 static struct strcache *strcache = NULL;
 static struct strcache *fullcache = NULL;
 
+/*记录系统中strcache的数目*/
 static unsigned long total_buffers = 0;
+/*记录系统中的string数目*/
 static unsigned long total_strings = 0;
 static unsigned long total_size = 0;
 
@@ -59,11 +65,13 @@ static unsigned long total_size = 0;
 static struct strcache *
 new_cache (struct strcache **head, sc_buflen_t buflen)
 {
+    /*申请strcache并串在head中*/
   struct strcache *new = xmalloc (buflen + CACHE_BUFFER_OFFSET);
   new->end = 0;
   new->count = 0;
   new->bytesfree = buflen;
 
+  /*将new串到head上*/
   new->next = *head;
   *head = new;
 
@@ -71,6 +79,7 @@ new_cache (struct strcache **head, sc_buflen_t buflen)
   return new;
 }
 
+/*复制str到strcache中*/
 static const char *
 copy_string (struct strcache *sp, const char *str, sc_buflen_t len)
 {
@@ -86,12 +95,13 @@ copy_string (struct strcache *sp, const char *str, sc_buflen_t len)
   return res;
 }
 
+/*将str填充到strcache中，并返回新内容的指针*/
 static const char *
 add_string (const char *str, sc_buflen_t len)
 {
   const char *res;
   struct strcache *sp;
-  struct strcache **spp = &strcache;
+  struct strcache **spp = &strcache;/*支持多string复用的strcache*/
   /* We need space for the nul char.  */
   sc_buflen_t sz = len + 1;
 
@@ -102,6 +112,7 @@ add_string (const char *str, sc_buflen_t len)
      no existing cache is large enough.  Add it directly to the fullcache.  */
   if (sz > BUFSIZE)
     {
+      /*sz过大，创建strcache，并串连到fullcache,返回复制后的字符串*/
       sp = new_cache (&fullcache, sz);
       return copy_string (sp, str, len);
     }
@@ -109,12 +120,14 @@ add_string (const char *str, sc_buflen_t len)
   /* Find the first cache with enough free space.  */
   for (; *spp != NULL; spp = &(*spp)->next)
     if ((*spp)->bytesfree > sz)
+        /*找到一个合适的空间*/
       break;
   sp = *spp;
 
   /* If nothing is big enough, make a new cache at the front.  */
   if (sp == NULL)
     {
+      /*没有可利用的strcache*/
       sp = new_cache (&strcache, BUFSIZE);
       spp = &strcache;
     }
@@ -126,6 +139,7 @@ add_string (const char *str, sc_buflen_t len)
      consider it full and move it to the full list.  */
   if (total_strings > 20 && sp->bytesfree < (total_size / total_strings) + 1)
     {
+      /*sp串连进fullcache*/
       *spp = sp->next;
       sp->next = fullcache;
       fullcache = sp;
@@ -140,19 +154,22 @@ struct hugestring {
   char buffer[1];           /* The string.  */
 };
 
+/*用于串连系统中所有的huge string*/
 static struct hugestring *hugestrings = NULL;
 
+/*执行huge string添加*/
 static const char *
 add_hugestring (const char *str, size_t len)
 {
   struct hugestring *new = xmalloc (sizeof (struct hugestring) + len);
-  memcpy (new->buffer, str, len);
-  new->buffer[len] = '\0';
+  memcpy (new->buffer, str, len);/*设置字符串*/
+  new->buffer[len] = '\0';/*补充字符串结束符*/
 
+  /*串成一串*/
   new->next = hugestrings;
   hugestrings = new;
 
-  return new->buffer;
+  return new->buffer;/*返回填充好的字符串*/
 }
 
 /* Hash table of strings in the cache.  */
@@ -176,10 +193,11 @@ str_hash_cmp (const void *x, const void *y)
 }
 
 static struct hash_table strings;
+/*记录系统中我们存储在strings hash table中的元素数*/
 static unsigned long total_adds = 0;
 
 static const char *
-add_hash (const char *str, size_t len)
+add_hash (const char *str/*字符串*/, size_t len/*字符串长度*/)
 {
   char *const *slot;
   const char *key;
@@ -187,10 +205,11 @@ add_hash (const char *str, size_t len)
   /* If it's too large for the string cache, just copy it.
      We don't bother trying to match these.  */
   if (len > USHRT_MAX - 1)
+      /*字符串长度过大，添加huge string*/
     return add_hugestring (str, len);
 
   /* Look up the string in the hash.  If it's there, return it.  */
-  slot = (char *const *) hash_find_slot (&strings, str);
+  slot = (char *const *) hash_find_slot (&strings, str);/*确定str对应的slot*/
   key = *slot;
 
   /* Count the total number of add operations we performed.  */
@@ -201,6 +220,7 @@ add_hash (const char *str, size_t len)
 
   /* Not there yet so add it to a buffer, then into the hash table.  */
   key = add_string (str, (sc_buflen_t)len);
+  /*将此string添加进hashtable*/
   hash_insert_at (&strings, key, slot);
   return key;
 }
@@ -213,18 +233,22 @@ strcache_iscached (const char *str)
 
   for (sp = strcache; sp != 0; sp = sp->next)
     if (str >= sp->buffer && str < sp->buffer + sp->end)
+        /*str在此strcache中，返回1*/
       return 1;
   for (sp = fullcache; sp != 0; sp = sp->next)
     if (str >= sp->buffer && str < sp->buffer + sp->end)
+        /*str在fullcache中，返回1*/
       return 1;
 
   {
+        /*检查str是否在hugestrings对应的strcache*/
     struct hugestring *hp;
     for (hp = hugestrings; hp != 0; hp = hp->next)
       if (str == hp->buffer)
         return 1;
   }
 
+  /*不在*/
   return 0;
 }
 
@@ -234,6 +258,7 @@ strcache_iscached (const char *str)
 const char *
 strcache_add (const char *str)
 {
+    /*添加string,返回新内容指针*/
   return add_hash (str, strlen (str));
 }
 

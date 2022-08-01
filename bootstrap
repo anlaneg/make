@@ -45,10 +45,12 @@ local_gl_dir=gl
 # Honor $PERL, but work even if there is none.
 PERL="${PERL-perl}"
 
+#记录当前脚本名称
 me=$0
 
 default_gnulib_url=git://git.sv.gnu.org/gnulib
 
+#显示当前脚本用法
 usage() {
   cat <<EOF
 Usage: $me [OPTION]...
@@ -293,11 +295,13 @@ find_tool ()
 # Override the default configuration, if necessary.
 # Make sure that bootstrap.conf is sourced from the current directory
 # if we were invoked as "sh bootstrap".
+# 加载配置
 case "$0" in
   */*) test -r "$0.conf" && . "$0.conf" ;;
   *) test -r "$0.conf" && . ./"$0.conf" ;;
 esac
 
+#检测版本控制软件的ingore文件
 if test "$vc_ignore" = auto; then
   vc_ignore=
   test -d .git && vc_ignore=.gitignore
@@ -318,9 +322,11 @@ for option
 do
   case $option in
   --help)
+    #显示帮助信息并退出
     usage
     exit;;
   --gnulib-srcdir=*)
+    #手工指定gunlib源码位置
     GNULIB_SRCDIR=${option#--gnulib-srcdir=};;
   --skip-po)
     SKIP_PO=t;;
