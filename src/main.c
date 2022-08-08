@@ -1404,10 +1404,11 @@ main (int argc, char **argv, char **envp)
   {
     unsigned int i;
 
+    /*变量当前环境变量，将其加入到variable表中*/
     for (i = 0; envp[i] != 0; ++i)
       {
         struct variable *v;
-        const char *ep = envp[i];
+        const char *ep = envp[i];/*取环境变量*/
         /* By default, export all variables culled from the environment.  */
         enum variable_export export = v_export;
         size_t len;
@@ -1433,12 +1434,13 @@ main (int argc, char **argv, char **envp)
 #endif
 
         /* Length of the variable name, and skip the '='.  */
-        len = ep++ - envp[i];/*环境变量名称长度*/
+        len = ep++ - envp[i];/*获知环境变量名称长度*/
 
         /* If this is MAKE_RESTARTS, check to see if the "already printed
            the enter statement" flag is set.  */
         if (len == 13 && memcmp (envp[i], STRING_SIZE_TUPLE ("MAKE_RESTARTS")) == 0)
           {
+            /*针对MAKE_RESTARTS进行处理*/
             if (*ep == '-')
               {
                 OUTPUT_TRACED ();
@@ -1455,6 +1457,7 @@ main (int argc, char **argv, char **envp)
            value of SHELL given to subprocesses.  */
         if (streq (v->name, "SHELL"))
           {
+            /*对SHELL进行处理*/
 #ifndef __MSDOS__
             export = v_noexport;
 #endif
@@ -1507,6 +1510,7 @@ main (int argc, char **argv, char **envp)
   /* Decode the switches.  */
   if (lookup_variable (STRING_SIZE_TUPLE (GNUMAKEFLAGS_NAME)))
     {
+      /*有GNUMAKEFLAGS_NAME，解析它*/
       decode_env_switches (STRING_SIZE_TUPLE (GNUMAKEFLAGS_NAME));
 
       /* Clear GNUMAKEFLAGS to avoid duplication.  */
@@ -1536,7 +1540,7 @@ main (int argc, char **argv, char **envp)
 
     /*参数解析*/
     decode_switches (argc, (const char **)argv, 0);
-    argv_slots = arg_job_slots;
+    argv_slots = arg_job_slots;/*参数提供的job slot*/
 
     if (arg_job_slots == INVALID_JOB_SLOTS)
       arg_job_slots = env_slots;
@@ -1840,7 +1844,7 @@ main (int argc, char **argv, char **envp)
     }
 
   /* Read any stdin makefiles into temporary files.  */
-
+  /*指明了makefile，处理这些变量*/
   if (makefiles != 0)
     {
       unsigned int i;
@@ -1991,7 +1995,7 @@ main (int argc, char **argv, char **envp)
   /* Define the default variables.  */
   define_default_variables ();/*定义默认变量*/
 
-  /*添加.DEFAULT*/
+  /*添加.DEFAULT文件*/
   default_file = enter_file (strcache_add (".DEFAULT"));
 
   default_goal_var = define_variable_cname (".DEFAULT_GOAL", "", o_file, 0);

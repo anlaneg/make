@@ -270,6 +270,7 @@ struct directory_contents
 #endif /* WINDOWS32 */
     struct hash_table dirfiles; /* Files in this directory.  */
     unsigned long counter;      /* command_count value when last read. */
+    /*此目录对应的DIR*/
     DIR *dirstream;             /* Stream reading this directory.  */
   };
 
@@ -386,6 +387,7 @@ static struct hash_table directory_contents;
 
 struct directory
   {
+    /*目录名称*/
     const char *name;           /* Name of the directory.  */
     unsigned long counter;      /* command_count value when last read.
                                    Used for non-existent directories.  */
@@ -478,6 +480,7 @@ find_directory (const char *name)
   char *w32_path;
 #endif
 
+  /*在directories中查找此dir*/
   dir_key.name = name;
   dir_slot = (struct directory **) hash_find_slot (&directories, &dir_key);
   dir = *dir_slot;
@@ -512,6 +515,7 @@ find_directory (const char *name)
 #else
       dir->name = strcache_add_len (name, len);
 #endif
+      /*将此目录添加进directories中*/
       hash_insert_at (&directories, dir, dir_slot);
     }
 
@@ -538,6 +542,7 @@ find_directory (const char *name)
     r = stat (tem, &st);
   }
 #else
+  /*取目录状态*/
   EINTRLOOP (r, stat (name, &st));
 #endif
 
@@ -601,7 +606,7 @@ find_directory (const char *name)
     }
 
   /* Point the name-hashed entry for DIR at its contents data.  */
-  dir->contents = dc;
+  dir->contents = dc;/*设置目录内容*/
 
   /* If the contents have changed, we need to reseet.  */
   if (dc->counter != command_count)

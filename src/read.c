@@ -181,7 +181,7 @@ read_all_makefiles (const char **makefiles)
   /* Create *_LIST variables, to hold the makefiles, targets, and variables
      we will be reading. */
 
-  define_variable_cname ("MAKEFILE_LIST", "", o_file, 0);
+  define_variable_cname ("MAKEFILE_LIST", "", o_file, 0);/*当前makefile_list为空*/
 
   DB (DB_BASIC, (_("Reading makefiles...\n")));
 
@@ -209,7 +209,7 @@ read_all_makefiles (const char **makefiles)
        MAKEFILES is updated for finding remaining tokens.  */
     p = value;
 
-    /*遍历所有文件*/
+    /*遍历MAKEFILES所有文件*/
     while ((name = find_next_token ((const char **)&p, &length)) != 0)
       {
         if (*p != '\0')
@@ -325,7 +325,7 @@ eval_makefile (const char *filename/*makefile名称,此文件在当前目录存�
 
   /* Create a new goaldep entry.  */
   deps = alloc_goaldep ();
-  deps->next = read_files;
+  deps->next = read_files;/*将新申请的deps挂接在read_files的头部*/
   read_files = deps;
 
   ebuf.floc.filenm = filename; /* Use the original file name.  */
@@ -409,10 +409,11 @@ eval_makefile (const char *filename/*makefile名称,此文件在当前目录存�
       }
 
   /* Enter the final name for this makefile as a goaldep.  */
-  /*添加此文件名*/
+  /*添加此文件名到string cache中*/
   filename = strcache_add (filename);
   deps->file = lookup_file (filename);
   if (deps->file == 0)
+      /*此文件未加入，在此处加入*/
     deps->file = enter_file (filename);
   filename = deps->file->name;
   deps->flags = flags;
@@ -442,7 +443,7 @@ eval_makefile (const char *filename/*makefile名称,此文件在当前目录存�
 
   /* Add this makefile to the list. */
   do_variable_definition (&ebuf.floc, "MAKEFILE_LIST", filename, o_file,
-                          f_append_value, 0);
+                          f_append_value, 0);/*增加此文件到makefile_list中*/
 
   /* Evaluate the makefile */
 
@@ -526,7 +527,7 @@ parse_var_assignment (const char *line, int targvar, struct vmodifiers *vmod)
   /* Find the start of the next token.  If there isn't one we're done.  */
   NEXT_TOKEN (line);/*将行首的空格去除掉*/
   if (*line == '\0')
-      /*去除掉行首的空格后，此行变身为空行了，直接返回line*/
+    /*去除掉行首的空格后，此行变身为空行了，直接返回line*/
     return (char *) line;
 
   p = line;
@@ -541,7 +542,7 @@ parse_var_assignment (const char *line, int targvar, struct vmodifiers *vmod)
 
       /* If this is a variable assignment, we're done.  */
       if (p2)
-          /*确认这一行是一个变量赋值，p2指向的是value*/
+        /*确认这一行是一个变量赋值，p2指向的是value*/
         break;
 
       /* It's not a variable; see if it's a modifier.  */
@@ -630,6 +631,7 @@ eval (struct ebuffer *ebuf, int set_default)
                         pattern_percent, depstr,                              \
                         cmds_started, commands, commands_idx, two_colon,      \
                         prefix, &fi);                                         \
+          /*已记录，filenames还原*/\
           filenames = 0;                                                      \
         }                                                                     \
       commands_idx = 0;                                                       \
@@ -667,11 +669,11 @@ eval (struct ebuffer *ebuf, int set_default)
       /* At the top of this loop, we are starting a brand new line.  */
       /* Grab the next line to be evaluated */
       ebuf->floc.lineno += nlines;
-      nlines = readline (ebuf);
+      nlines = readline (ebuf);/*读取一行数据，注意：这行数据可能含续行的情况*/
 
       /* If there is nothing left to eval, we're done.  */
       if (nlines < 0)
-          /*读取新行失败，跳出*/
+        /*读取新行失败，跳出*/
         break;
 
       line = ebuf->buffer;
@@ -679,7 +681,7 @@ eval (struct ebuffer *ebuf, int set_default)
       /* If this is the first line, check for a UTF-8 BOM and skip it.  */
       if (ebuf->floc.lineno == 1)
         {
-          /*首行，跳过UTF-8 BOM*/
+          /*首行情况，跳过UTF-8 BOM*/
           unsigned char *ul = (unsigned char *) line;
           if (ul[0] == 0xEF && ul[1] == 0xBB && ul[2] == 0xBF)
             {
@@ -721,6 +723,7 @@ eval (struct ebuffer *ebuf, int set_default)
                 /* Yep, this is a shell command, and we don't care.  */
                 continue;
 
+              /*此行以'\t'开头，则为命令行，为target的首个命令，记录命令起始行号*/
               if (commands_idx == 0)
                 cmds_started = ebuf->floc.lineno;
 
@@ -733,7 +736,7 @@ eval (struct ebuffer *ebuf, int set_default)
                   commands = xrealloc (commands, commands_len);
                 }
 
-              /*记录此commands*/
+              /*记录target对应的commands*/
               memcpy (&commands[commands_idx], line + 1, linelen - 1);
               commands_idx += linelen - 1;
               commands[commands_idx++] = '\n';
@@ -747,13 +750,14 @@ eval (struct ebuffer *ebuf, int set_default)
 
       if (collapsed_length < linelen+1)
         {
+          /*更新collapsed_length*/
           collapsed_length = linelen+1;
           free (collapsed);
           /* Don't need xrealloc: we don't need to preserve the content.  */
           collapsed = xmalloc (collapsed_length);
         }
 
-      /*原内容复制到collapsed*/
+      /*将原内容复制到collapsed，折叠续行情况，移除注释*/
       strcpy (collapsed, line);
       /* Collapse continuation lines.  */
       collapse_continuations (collapsed);
@@ -761,14 +765,14 @@ eval (struct ebuffer *ebuf, int set_default)
 
       /* Get rid if starting space (including formfeed, vtab, etc.)  */
       p = collapsed;
-      NEXT_TOKEN (p);
+      NEXT_TOKEN (p);/*跳过行首的空格*/
 
       /* See if this is a variable assignment.  We need to do this early, to
          allow variables with names like 'ifdef', 'export', 'private', etc.  */
       p = parse_var_assignment (p, 0, &vmod);
       if (vmod.assign_v)
         {
-          /*p指向的这一行为赋值或者modifier行*/
+          /*p指向的这一行为赋值语句或者modifier行*/
           struct variable *v;
           enum variable_origin origin = vmod.override_v ? o_override : o_file;
 
@@ -785,10 +789,12 @@ eval (struct ebuffer *ebuf, int set_default)
 
           if (vmod.undefine_v)
           {
+              /*此变量被解定义，移除它*/
             do_undefine (p, origin, ebuf);
             continue;
           }
           else if (vmod.define_v)
+              /*增加定义*/
             v = do_define (p, origin, ebuf);
           else
             v = try_variable_definition (fstart, p, origin, 0);
@@ -806,17 +812,20 @@ eval (struct ebuffer *ebuf, int set_default)
 
       /* If this line is completely empty, ignore it.  */
       if (*p == '\0')
+          /*此行为空，忽略*/
         continue;
 
+      /*非赋值行，取首个token*/
       p2 = end_of_token (p);
-      wlen = p2 - p;
-      NEXT_TOKEN (p2);
+      wlen = p2 - p;/*获知token长度*/
+      NEXT_TOKEN (p2);/*跳过token后的空格*/
 
       /* If we're in an ignored define, skip this line (but maybe get out).  */
       if (in_ignored_define)
         {
           /* See if this is an endef line (plus optional comment).  */
           if (word1eq ("endef") && STOP_SET (*p2, MAP_COMMENT|MAP_NUL))
+              /*如果行首的token为endef,且当前处于ignored_define中，则不再ignored*/
             in_ignored_define = 0;
 
           continue;
@@ -824,25 +833,29 @@ eval (struct ebuffer *ebuf, int set_default)
 
       /* Check for conditional state changes.  */
       {
-        int i = conditional_line (p, wlen, fstart);
+        /*处理条件行*/
+        int i = conditional_line (p/*行首地址*/, wlen/*首个token的长度*/, fstart);
         if (i != -2)
           {
+            /*识别为语句，i==-1，认为语法有误*/
             if (i == -1)
               O (fatal, fstart, _("invalid syntax in conditional"));
 
-            ignoring = i;
+            ignoring = i;/*指明后面语句是否忽略*/
             continue;
           }
       }
 
       /* Nothing to see here... move along.  */
       if (ignoring)
+          /*此分支已被忽略*/
         continue;
 
       /* Manage the "export" keyword used outside of variable assignment
          as well as "unexport".  */
       if (word1eq ("export") || word1eq ("unexport"))
         {
+          /*是否export*/
           int exporting = *p == 'u' ? 0 : 1;
 
           /* Export/unexport ends the previous rule.  */
@@ -850,6 +863,7 @@ eval (struct ebuffer *ebuf, int set_default)
 
           /* (un)export by itself causes everything to be (un)exported. */
           if (*p2 == '\0')
+              /*p2没有值，导出所有变量*/
             export_all_variables = exporting;
           else
             {
@@ -861,12 +875,15 @@ eval (struct ebuffer *ebuf, int set_default)
                  variable names in an (un)export command.  */
               cp = ap = allocated_variable_expand (p2);
 
+              /*遍历指定的所有variable*/
               for (p = find_next_token (&cp, &l); p != 0;
                    p = find_next_token (&cp, &l))
                 {
                   struct variable *v = lookup_variable (p, l);
                   if (v == 0)
+                      /*变量不存在，则增加定义，并置为空*/
                     v = define_variable_global (p, l, "", o_file, 0, fstart);
+                  /*指明变量是否导出*/
                   v->export = exporting ? v_export : v_noexport;
                 }
 
@@ -885,6 +902,7 @@ eval (struct ebuffer *ebuf, int set_default)
           /* vpath ends the previous rule.  */
           record_waiting_files ();
 
+          /*展开p2*/
           cp = variable_expand (p2);
           p = find_next_token (&cp, &l);
           if (p != 0)
@@ -897,6 +915,7 @@ eval (struct ebuffer *ebuf, int set_default)
           else
             /* No pattern means remove all previous selective VPATH's.  */
             vpat = 0;
+          /*构造vpath(没有阅读进去）*/
           construct_vpath_list (vpat, p);
           free (vpat);
 
@@ -918,6 +937,7 @@ eval (struct ebuffer *ebuf, int set_default)
           /* Include ends the previous rule.  */
           record_waiting_files ();
 
+          /*对p2进行展开*/
           p = allocated_variable_expand (p2);
 
           /* If no filenames, it's a no-op.  */
@@ -944,6 +964,7 @@ eval (struct ebuffer *ebuf, int set_default)
           /* Read each included makefile.  */
           while (files != 0)
             {
+              /*解析每个被include的makefile文件*/
               struct nameseq *next = files->next;
               unsigned short flags = (RM_INCLUDED | RM_NO_TILDE
                                       | (noerror ? RM_DONTCARE : 0)
@@ -972,6 +993,7 @@ eval (struct ebuffer *ebuf, int set_default)
           /* Load ends the previous rule.  */
           record_waiting_files ();
 
+          /*展开p2*/
           p = allocated_variable_expand (p2);
 
           /* If no filenames, it's a no-op.  */
@@ -997,6 +1019,7 @@ eval (struct ebuffer *ebuf, int set_default)
               int r;
 
               /* Load the file.  0 means failure.  */
+              /*加载文件*/
               r = load_file (&ebuf->floc, &name, noerror);
               if (! r && ! noerror)
                 OS (fatal, &ebuf->floc, _("%s: failed to load"), name);
@@ -1025,6 +1048,7 @@ eval (struct ebuffer *ebuf, int set_default)
          was no preceding target, and the line might have been usable as a
          variable definition.  But now we know it is definitely lossage.  */
       if (line[0] == cmd_prefix)
+          /*报错，非以上行，不得以tab开头*/
         O (fatal, fstart, _("recipe commences before first target"));
 
       /* This line describes some target files.  This is complicated by
@@ -1055,16 +1079,18 @@ eval (struct ebuffer *ebuf, int set_default)
         if (cmdleft != 0 && *cmdleft == '#')
           {
             /* We found a comment before a semicolon.  */
+            /*遇到注释，将注释符改为’\0'*/
             *cmdleft = '\0';
             cmdleft = 0;
           }
         else if (cmdleft != 0)
           {
             /* Found one.  Cut the line short there before expanding it.  */
-            semip = cmdleft++;
+            semip = cmdleft++;/*遇到分号，将分号更改为'\0'*/
             *semip = '\0';
           }
 
+        /*移除此行对应的续行符*/
         collapse_continuations (line);
 
         /* We can't expand the entire line, since if it's a per-target
@@ -1420,6 +1446,7 @@ do_undefine (char *name, enum variable_origin origin, struct ebuffer *ebuf)
     --p;
   p[1] = '\0';
 
+  /*变量移除*/
   undefine_variable_global (name, p - name + 1, origin);
   free (var);
 }
@@ -1558,6 +1585,7 @@ conditional_line (char *line, size_t len, const floc *flocp)
 
   /* Compare a word, both length and contents. */
 #define word1eq(s)      (len == CSTRLEN (s) && strneq (s, line, CSTRLEN (s)))
+  /*如果line起始的内容与s匹配，则填充cmdtype=t,cmdname=s*/
 #define chkword(s, t)   if (word1eq (s)) { cmdtype = (t); cmdname = (s); }
 
   /* Make sure this line is a conditional.  */
@@ -1568,11 +1596,12 @@ conditional_line (char *line, size_t len, const floc *flocp)
   else chkword ("else", c_else)
   else chkword ("endif", c_endif)
   else
+      /*遇到不认识的前缀*/
     return -2;
 
   /* Found one: skip past it and any whitespace after it.  */
-  line += len;
-  NEXT_TOKEN (line);
+  line += len;/*跳过关鍵字*/
+  NEXT_TOKEN (line);/*使line前移到非空格*/
 
 #define EXTRATEXT() OS (error, flocp, _("extraneous text after '%s' directive"), cmdname)
 #define EXTRACMD()  OS (fatal, flocp, _("extraneous '%s'"), cmdname)
@@ -1581,11 +1610,14 @@ conditional_line (char *line, size_t len, const floc *flocp)
   if (cmdtype == c_endif)
     {
       if (*line != '\0')
+          /*endif后仍有内容，格式有误，则报错*/
         EXTRATEXT ();
 
       if (!conditionals->if_cmds)
+          /*条件没有嵌套，遇到不匹配的endif,报错*/
         EXTRACMD ();
 
+      /*嵌套层数减1*/
       --conditionals->if_cmds;
 
       goto DONE;
@@ -1598,11 +1630,13 @@ conditional_line (char *line, size_t len, const floc *flocp)
       const char *p;
 
       if (!conditionals->if_cmds)
+          /*条件没有嵌套，遇到不匹配的else,报错*/
         EXTRACMD ();
 
       o = conditionals->if_cmds - 1;
 
       if (conditionals->seen_else[o])
+          /*这一层已经看到else了，重复的else,报错*/
         O (fatal, flocp, _("only one 'else' per conditional"));
 
       /* Change the state of ignorance.  */
@@ -1621,6 +1655,7 @@ conditional_line (char *line, size_t len, const floc *flocp)
       /* It's a simple 'else'.  */
       if (*line == '\0')
         {
+          /*遇到简单的else,指明else已遇到*/
           conditionals->seen_else[o] = 1;
           goto DONE;
         }
@@ -1631,14 +1666,16 @@ conditional_line (char *line, size_t len, const floc *flocp)
       /* Find the length of the next word.  */
       for (p = line+1; ! STOP_SET (*p, MAP_SPACE|MAP_NUL); ++p)
         ;
-      len = p - line;
+      len = p - line;/*获知这token大小*/
 
       /* If it's 'else' or 'endif' or an illegal conditional, fail.  */
       if (word1eq ("else") || word1eq ("endif")
           || conditional_line (line, len, flocp) < 0)
+          /*语法错误情况，else后面为else,endif或者其它无效的逻辑*/
         EXTRATEXT ();
       else
         {
+          /*上面的Conditional_line已处理*/
           /* conditional_line() created a new level of conditional.
              Raise it back to this level.  */
           if (conditionals->ignoring[o] < 2)
@@ -1656,6 +1693,7 @@ conditional_line (char *line, size_t len, const floc *flocp)
       conditionals->seen_else = xmalloc (conditionals->allocated);
     }
 
+  /*嵌套层数增加*/
   o = conditionals->if_cmds++;
   if (conditionals->if_cmds > conditionals->allocated)
     {
@@ -1680,6 +1718,7 @@ conditional_line (char *line, size_t len, const floc *flocp)
         return 1;
       }
 
+  /*ifdef,ifndef用于检查其后展开后的内容对应的变量名是否有值或已定义*/
   if (cmdtype == c_ifdef || cmdtype == c_ifndef)
     {
       size_t l;
@@ -1689,6 +1728,7 @@ conditional_line (char *line, size_t len, const floc *flocp)
 
       /* Expand the thing we're looking up, so we can use indirect and
          constructed variable names.  */
+      /*将line内容展开*/
       var = allocated_variable_expand (line);
 
       /* Make sure there's only one variable name to test.  */
@@ -1696,11 +1736,14 @@ conditional_line (char *line, size_t len, const floc *flocp)
       l = p - var;
       NEXT_TOKEN (p);
       if (*p != '\0')
+          /*其后仍有内容，此if无效*/
         return -1;
 
+      /*取展开后的内容，认为是一个变量，执行查询*/
       var[l] = '\0';
       v = lookup_variable (var, l);
 
+      /*设置条件，检查变量是否存在*/
       conditionals->ignoring[o] =
         ((v != 0 && *v->value != '\0') == (cmdtype == c_ifndef));
 
@@ -1711,11 +1754,14 @@ conditional_line (char *line, size_t len, const floc *flocp)
       /* "ifeq" or "ifneq".  */
       char *s1, *s2;
       size_t l;
+      /*如果line以'('开头，则终结符为','否则终结符为'*line'*/
       char termin = *line == '(' ? ',' : *line;
 
       if (termin != ',' && termin != '"' && termin != '\'')
+        /*仅支持line以'"',',','\' 三种终结符*/
         return -1;
 
+      /*跳过起始符,例如'(',s1指向的是'('之后的首个字符*/
       s1 = ++line;
       /* Find the end of the first string.  */
       if (termin == ',')
@@ -1730,10 +1776,12 @@ conditional_line (char *line, size_t len, const floc *flocp)
               break;
         }
       else
+          /*非(开头的情况，遇到终止符后，结束*/
         while (*line != '\0' && *line != termin)
           ++line;
 
       if (*line == '\0')
+        /*首个参数后，即达到结尾，无效语句*/
         return -1;
 
       if (termin == ',')
@@ -1742,11 +1790,12 @@ conditional_line (char *line, size_t len, const floc *flocp)
           char *p = line++;
           while (ISBLANK (p[-1]))
             --p;
-          *p = '\0';
+          *p = '\0';/*首个参数，s1在字符串结尾处，置'\0'*/
         }
       else
         *line++ = '\0';
 
+      /*展开此值，更新s1为展开后的值*/
       s2 = variable_expand (s1);
       /* We must allocate a new copy of the expanded string because
          variable_expand re-uses the same buffer.  */
@@ -1754,12 +1803,14 @@ conditional_line (char *line, size_t len, const floc *flocp)
       s1 = alloca (l + 1);
       memcpy (s1, s2, l + 1);
 
+      /*非','号情况下，跳到下一个token位置*/
       if (termin != ',')
         /* Find the start of the second string.  */
         NEXT_TOKEN (line);
 
       termin = termin == ',' ? ')' : *line;
       if (termin != ')' && termin != '"' && termin != '\'')
+          /*参数2的终止符，有误，报错*/
         return -1;
 
       /* Find the end of the second string.  */
@@ -1794,9 +1845,13 @@ conditional_line (char *line, size_t len, const floc *flocp)
       *(line++) = '\0';
       NEXT_TOKEN (line);
       if (*line != '\0')
+          /*s2后必须达到行结束符*/
         EXTRATEXT ();
 
+      /*展开s2(这里的s2没有进行空格处理）*/
       s2 = variable_expand (s2);
+
+      /*针对s1,s2进行参数比对*/
       conditionals->ignoring[o] = (streq (s1, s2) == (cmdtype == c_ifneq));
     }
 
@@ -2050,6 +2105,7 @@ record_files (struct nameseq *filenames, int are_also_makes,
   /* If there's a recipe, set up a struct for it.  */
   if (commands_idx > 0)
     {
+      /*记录此target对应的cmds*/
       cmds = xmalloc (sizeof (struct commands));
       cmds->fileinfo.filenm = flocp->filenm;
       cmds->fileinfo.lineno = cmds_started;
@@ -2069,6 +2125,7 @@ record_files (struct nameseq *filenames, int are_also_makes,
     deps = 0;
   else
     {
+      /*解析依赖项*/
       depstr = unescape_char (depstr, ':');
       if (second_expansion && strchr (depstr, '$'))
         {
@@ -2359,35 +2416,42 @@ find_map_unquote (char *string, int stopmap)
         ++p;
 
       if (*p == '\0')
+          /*到达行尾，退出*/
         break;
 
       /* If we stopped due to a variable reference, skip over its contents.  */
       if (*p == '$')
         {
+          /*取区间起始标记*/
           char openparen = p[1];
 
           /* Check if '$' is the last character in the string.  */
           if (openparen == '\0')
+              /*$是最后一个字符，退出*/
             break;
 
-          p += 2;
+          p += 2;/*跳过${*/
 
           /* Skip the contents of a non-quoted, multi-char variable ref.  */
           if (openparen == '(' || openparen == '{')
             {
               unsigned int pcount = 1;
+              /*确定闭区间标记*/
               char closeparen = (openparen == '(' ? ')' : '}');
 
               while (*p)
                 {
                   if (*p == openparen)
+                      /*区间标记嵌套*/
                     ++pcount;
                   else if (*p == closeparen)
                     if (--pcount == 0)
                       {
+                        /*区间嵌套达到0，跳出*/
                         ++p;
                         break;
                       }
+                  /*其它解析无相关字符*/
                   ++p;
                 }
             }
@@ -2396,6 +2460,7 @@ find_map_unquote (char *string, int stopmap)
           continue;
         }
 
+      /*处理'\‘转义问题*/
       if (p > string && p[-1] == '\\')
         {
           /* Search for more backslashes.  */
@@ -2492,8 +2557,8 @@ unescape_char (char *string, int c)
 
           /* We found a backslash.  See if it's escaping our character.  */
           while (*e == '\\')
-            ++e;
-          l = e - s;
+            ++e;/*跳过多个'\'*/
+          l = e - s;/*自第一个'\\'到最后一个'\\'的字符串长度*/
 
           if (*e != c || l%2 == 0)
             {
@@ -2516,6 +2581,7 @@ unescape_char (char *string, int c)
           s = e;
         }
 
+      /*直接复制*/
       *(p++) = *(s++);
     }
 
@@ -2618,13 +2684,13 @@ readstring (struct ebuffer *ebuf)
 
   /* If there is nothing left in this buffer, return 0.  */
   if (ebuf->bufnext >= ebuf->bufstart + ebuf->size)
-      /*内容不足，返回-1*/
+      /*内容不足以读取，返回-1*/
     return -1;
 
   /* Set up a new starting point for the buffer, and find the end of the
      next logical line (taking into account backslash/newline pairs).  */
 
-  eol = ebuf->buffer = ebuf->bufnext;
+  eol = ebuf->buffer = ebuf->bufnext;/*取读取起始点*/
 
   while (1)
     {
@@ -2655,7 +2721,7 @@ readstring (struct ebuffer *ebuf)
 
   /* Overwrite the newline char.  */
   *eol = '\0';
-  ebuf->bufnext = eol+1;
+  ebuf->bufnext = eol+1;/*指向换行符后面*/
 
   return 0;
 }
@@ -2679,18 +2745,18 @@ readline (struct ebuffer *ebuf)
   /* When reading from a file, we always start over at the beginning of the
      buffer for each new line.  */
 
-  p = start = ebuf->bufstart;
-  end = p + ebuf->size;
+  p = start = ebuf->bufstart;/*buffer起始*/
+  end = p + ebuf->size;/*buffer终止*/
   *p = '\0';
 
-  /*自文件中读取数据（读取长度由buffer可用长度确定）*/
+  /*自文件中读取足量数据（读取长度由buffer可用长度确定）*/
   while (fgets (p, (int) (end - p), ebuf->fp) != 0)
     {
       char *p2;
       size_t len;
       int backslash;
 
-      /*读取的内容长度*/
+      /*取读取到的内容长度*/
       len = strlen (p);
       if (len == 0)
         {
@@ -2706,16 +2772,16 @@ readline (struct ebuffer *ebuf)
         }
 
       /* Jump past the text we just read.  */
-      p += len;
+      p += len;/*更新到内容尾部*/
 
       /* If the last char isn't a newline, the whole line didn't fit into the
          buffer.  Get some more buffer and try again.  */
       if (p[-1] != '\n')
-          /*读取的内容最后一个字符非换行，读更多内容*/
+          /*读取的内容最后一个字符非换行，增大buffer后尝试读更多内容*/
         goto more_buffer;
 
       /* We got a newline, so add one to the count of lines.  */
-      ++nlines;
+      ++nlines;/*我们读到了一行*/
 
 #if !defined(WINDOWS32) && !defined(__MSDOS__) && !defined(__EMX__)
       /* Check to see if the line was really ended with CRLF; if so ignore
@@ -2732,12 +2798,15 @@ readline (struct ebuffer *ebuf)
       for (p2 = p - 2; p2 >= start; --p2)
         {
           if (*p2 != '\\')
+              /*确认没有遇到再遇到‘\\'符，跳出后再检查*/
             break;
+          /*继续向前查，分清是否为\n转义*/
           backslash = !backslash;
         }
 
       if (!backslash)
         {
+          /*确认没有对'\n'进行转议，读取一行数据完成，退出*/
           p[-1] = '\0';
           break;
         }
@@ -2745,17 +2814,20 @@ readline (struct ebuffer *ebuf)
       /* It was a backslash/newline combo.  If we have more space, read
          another line.  */
       if (end - p >= 80)
+          /*我们在上面遇到一个换行符，但这个换行符被转义了，我们需要读入更多的内容，
+           * 但在这里我们看下还有80个空闲的字节可以填充，我们就暂不扩充buffer了*/
         continue;
 
       /* We need more space at the end of our buffer, so realloc it.
          Make sure to preserve the current offset of p.  */
     more_buffer:
       {
+        /*我们向buffer中读取了内容，但buffer中不足以存放一行内容，故我们在这里扩大buffer*/
         size_t off = p - start;
         ebuf->size *= 2;/*扩大buffer容量，并进行realloc*/
         start = ebuf->buffer = ebuf->bufstart = xrealloc (start, ebuf->size);
-        p = start + off;
-        end = start + ebuf->size;
+        p = start + off;/*起始位置*/
+        end = start + ebuf->size;/*buffer终止位置*/
         *p = '\0';
       }
     }
@@ -3373,6 +3445,7 @@ parse_file_seq (char **stringp, size_t size, int stopmap,
           n[0] = '\0';
           nlen = strlen (tp);
 #else
+          /*解析出一个后缀,存入到tp中*/
           nlen = p - s;
           memcpy (tp, s, nlen);
           tp[nlen] = '\0';

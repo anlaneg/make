@@ -99,11 +99,13 @@ extern void *hash_deleted_item;
 
 #define STRING_HASH_1(KEY, RESULT) do { \
   unsigned char const *_key_ = (unsigned char const *) (KEY); \
+  /*计算jhash，并合入到result变量上*/\
   (RESULT) += jhash_string(_key_); \
 } while (0)
 #define return_STRING_HASH_1(KEY) do { \
   unsigned long _result_ = 0; \
   STRING_HASH_1 ((KEY), _result_); \
+  /*合入result后，并返回*/\
   return _result_; \
 } while (0)
 
@@ -122,6 +124,7 @@ extern void *hash_deleted_item;
 #define STRING_COMPARE(X, Y, RESULT) do { \
     RESULT = (X) == (Y) ? 0 : strcmp ((X), (Y)); \
 } while (0)
+/*通过strcmp比对x,y是否相等*/
 #define return_STRING_COMPARE(X, Y) do { \
   return (X) == (Y) ? 0 : strcmp ((X), (Y)); \
 } while (0)

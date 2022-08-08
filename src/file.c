@@ -71,7 +71,7 @@ static int no_intermediates = 0;
 */
 
 struct file *
-lookup_file (const char *name)
+lookup_file (const char *name/*文件名称*/)
 {
   struct file *f;
   struct file file_key;
@@ -82,8 +82,10 @@ lookup_file (const char *name)
 #endif
 #endif
 
+  /*名称不能为空*/
   assert (*name != '\0');
 
+  /*对路径做一些规范化，然后再查询hash table*/
   /* This is also done in parse_file_seq, so this is redundant
      for names read from makefiles.  It is here for names passed
      on the command line.  */
@@ -115,6 +117,7 @@ lookup_file (const char *name)
 #endif
          && name[2] != '\0')
     {
+      /*名称以'./'开头，移除此后多余的'/'符号*/
       name += 2;
       while (*name == '/'
 #ifdef HAVE_DOS_PATHS
@@ -139,6 +142,8 @@ lookup_file (const char *name)
         name = "[]";
 #endif
     }
+
+  /*构造file_key并查询*/
   file_key.hname = name;
   f = hash_find_item (&files, &file_key);
 #if defined(VMS) && !defined(WANT_CASE_SENSITIVE_TARGETS)
@@ -162,6 +167,7 @@ enter_file (const char *name)
   struct file **file_slot;
   struct file file_key;
 
+  /*文件名称不能为空*/
   assert (*name != '\0');
   assert (! verify_flag || strcache_iscached (name));
 
@@ -199,11 +205,13 @@ enter_file (const char *name)
 
   if (HASH_VACANT (f))
     {
+      /*首个元素*/
       new->last = new;
       hash_insert_at (&files, new, file_slot);
     }
   else
     {
+      /*非首个元素，将它们串起来*/
       /* There is already a double-colon entry for this file.  */
       new->double_colon = f;
       f->last->prev = new;
@@ -230,6 +238,7 @@ rehash_file (struct file *from_file, const char *to_hname)
   from_file->builtin = 0;
   file_key.hname = to_hname;
   if (! file_hash_cmp (from_file, &file_key))
+      /*from_file与to_hname相等，直接返回*/
     return;
 
   /* Find the end of the renamed list for the "from" file.  */
@@ -241,6 +250,7 @@ rehash_file (struct file *from_file, const char *to_hname)
     abort ();
 
   /* Remove the "from" file from the hash.  */
+  /*先移除掉*/
   deleted_file = hash_delete (&files, from_file);
   if (deleted_file != from_file)
     /* from_file isn't the one stored in files */
@@ -357,6 +367,7 @@ rehash_file (struct file *from_file, const char *to_hname)
 void
 rename_file (struct file *from_file, const char *to_hname)
 {
+    /*先更换from_file*/
   rehash_file (from_file, to_hname);
   while (from_file)
     {
@@ -1259,6 +1270,7 @@ build_target_list (char *value)
 void
 init_hash_files (void)
 {
+    /*初始化files hash表*/
   hash_init (&files, 1000, file_hash_1, file_hash_2, file_hash_cmp);
 }
 

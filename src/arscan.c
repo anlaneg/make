@@ -836,8 +836,10 @@ ar_name_equal (const char *name, const char *mem, int truncated)
 {
   const char *p;
 
+  /*反向查询'/'*/
   p = strrchr (name, '/');
   if (p != 0)
+      /*更新name*/
     name = p + 1;
 
 #ifndef VMS

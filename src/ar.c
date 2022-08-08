@@ -36,12 +36,16 @@ ar_name (const char *name)
   const char *end;
 
   if (p == 0 || p == name)
+    /*name中不存在'('或者'('在字符串起始位置，返回0*/
     return 0;
 
+  /*取最后一个字符*/
   end = p + strlen (p) - 1;
   if (*end != ')' || end == p + 1)
+      /*最后一个字符不为')'或者，end即为p+1 返回0*/
     return 0;
 
+  /*不支持'((', '))'这种样式*/
   if (p[1] == '(' && end[-1] == ')')
     OS (fatal, NILF, _("attempt to use unsupported feature: '%s'"), name);
 
@@ -54,10 +58,11 @@ ar_name (const char *name)
    MEMNAME_P points to the member.  */
 
 void
-ar_parse_name (const char *name, char **arname_p, char **memname_p)
+ar_parse_name (const char *name, char **arname_p/*出参，取arname*/, char **memname_p/*出参，取memname*/)
 {
   char *p;
 
+  /*自 $arname($memname)中解析出arname,memname*/
   *arname_p = xstrdup (name);
   p = strchr (*arname_p, '(');
   *(p++) = '\0';
@@ -76,6 +81,7 @@ ar_member_date_1 (int desc UNUSED, const char *mem, int truncated,
                   int uid UNUSED, int gid UNUSED, unsigned int mode UNUSED,
                   const void *name)
 {
+    /*检查name与mem是否相等*/
   return ar_name_equal (name, mem, truncated) ? date : 0;
 }
 

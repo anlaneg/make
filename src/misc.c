@@ -42,6 +42,7 @@ make_toui (const char *str, const char **error)
 
   if (error)
     {
+      /*转换出错*/
       if (str[0] == '\0')
         *error = "Missing value";
       else if (*end != '\0')
@@ -50,6 +51,7 @@ make_toui (const char *str, const char **error)
         *error = NULL;
     }
 
+  /*返回转换后的数字*/
   return val;
 }
 
@@ -81,7 +83,7 @@ collapse_continuations (char *line)
 
   q = strchr(in, '\n');
   if (q == 0)
-      /*这一行字符串中不含行尾符'\n',需要增加内容，这里返回*/
+    /*这一行字符串中不含行尾符'\n',不需要移除，直接返回*/
     return;
 
   do
@@ -96,10 +98,13 @@ collapse_continuations (char *line)
           i = -2;
           while (&p[i] >= line && p[i] == '\\')
             --i;
-          ++i;
+          ++i;/*自i位置开始，均为'\'符号，一直到q指向'\n'*/
         }
       else
         i = 0;
+      /*p位置指向的是一个被转义的'\n'，从i位置开始为‘/’，自i位置到q位置有一半的'/'需要被移除
+       * ‘\n’需要被移除
+       * */
 
       /* The number of backslashes is now -I, keep half of them.  */
       out_line_length = (p - in) + i - i/2;
@@ -112,6 +117,7 @@ collapse_continuations (char *line)
 
       if (i & 1)
         {
+          /*q指向的'\n'因为被转义所以跳过*/
           /* Backslash/newline handling:
              In traditional GNU make all trailing whitespace, consecutive
              backslash/newlines, and any leading non-newline whitespace on the
@@ -122,7 +128,7 @@ collapse_continuations (char *line)
           if (! posix_pedantic)
             while (out > line && ISBLANK (out[-1]))
               --out;
-          *out++ = ' ';
+          *out++ = ' ';/*按传统，削减成单个空格*/
         }
       else
         {

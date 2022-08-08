@@ -48,6 +48,7 @@ PERL="${PERL-perl}"
 #记录当前脚本名称
 me=$0
 
+#gnulib git地址
 default_gnulib_url=https://git.savannah.gnu.org/git/gnulib.git
 
 #显示当前脚本用法
@@ -74,6 +75,7 @@ Options:
                           --gnulib-srcdir point to a correct gnulib snapshot
  --skip-po                do not download po files
 EOF
+  #触发用户定义的选项hook
   bootstrap_print_option_usage_hook
   cat <<EOF
 If the file $me.conf exists in the same directory as this script, its
@@ -117,7 +119,10 @@ Running without arguments will suffice in most cases.
 EOF
 }
 
+#获取year
 copyright_year=`echo "$scriptversion" | sed -e 's/[^0-9].*//'`
+
+#格式化copyright
 copyright="Copyright (C) ${copyright_year} Free Software Foundation, Inc.
 License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.
 This is free software: you are free to change and redistribute it.
@@ -211,6 +216,7 @@ extract_package_name='
 '
 package=$(${AUTOCONF:-autoconf} --trace AC_INIT:\$4 configure.ac 2>/dev/null)
 if test -z "$package"; then
+  #提取包名称
   package=$(sed -n "$extract_package_name" configure.ac) \
       || die 'cannot find package name in configure.ac'
 fi
@@ -269,10 +275,12 @@ vc_ignore=auto
 bootstrap_sync=false
 
 # Use git to update gnulib sources
+#默认采用git
 use_git=true
 
 check_exists() {
   if test "$1" = "--verbose"; then
+    #verbose情况下，输出$2的详细显示版本内容，用于定位
     ($2 --version </dev/null) >/dev/null 2>&1
     if test $? -ge 126; then
       # If not found, run with diagnostics as one may be
@@ -280,9 +288,11 @@ check_exists() {
       ($2 --version </dev/null)
     fi
   else
+    #获取$1对应的版本
     ($1 --version </dev/null) >/dev/null 2>&1
   fi
 
+  #检查退出码是否小于126
   test $? -lt 126
 }
 
@@ -428,13 +438,15 @@ symlink_to_dir()
 # Override the default configuration, if necessary.
 # Make sure that bootstrap.conf is sourced from the current directory
 # if we were invoked as "sh bootstrap".
-# 加载配置
+# 加载配置，配置为$0.conf文件
 case "$0" in
+  #$0约定目录下配置文件
   */*) test -r "$0.conf" && . "$0.conf" ;;
+  #当前目录下配置文件
   *) test -r "$0.conf" && . ./"$0.conf" ;;
 esac
 
-#检测版本控制软件的ingore文件
+#检测版本控制软件，并设置vc_ignore的文件名称
 if test "$vc_ignore" = auto; then
   vc_ignore=
   test -d .git && vc_ignore=.gitignore
@@ -442,6 +454,7 @@ if test "$vc_ignore" = auto; then
 fi
 
 if test x"$gnulib_modules$gnulib_files$gnulib_extra_files" = x; then
+  #不使用gnulib
   use_gnulib=false
 else
   use_gnulib=true
@@ -459,6 +472,7 @@ do
     usage
     exit;;
   --version)
+    #显示版本
     set -e
     echo "bootstrap $scriptversion"
     echo "$copyright"
@@ -478,12 +492,14 @@ do
   --no-bootstrap-sync)
     bootstrap_sync=false;;
   --no-git)
+    #指明非git
     use_git=false;;
   *)
     bootstrap_option_hook $option || die "$option: unknown option";;
   esac
 done
 
+#需要手工指定gnulib的情况
 $use_git || test -d "$GNULIB_SRCDIR" \
   || die "Error: --no-git requires --gnulib-srcdir"
 
@@ -503,9 +519,11 @@ test $found_aux_dir = yes \
 # If $build_aux doesn't exist, create it now, otherwise some bits
 # below will malfunction.  If creating it, also mark it as ignored.
 if test ! -d $build_aux; then
+  #构造$build_aux目录
   mkdir $build_aux
   for dot_ig in x $vc_ignore; do
     test $dot_ig = x && continue
+    #要求版本控制文件忽略掉$build_aux目录
     insert_vc_ignore $dot_ig $build_aux
   done
 fi
@@ -746,7 +764,9 @@ git_modules_config () {
 
 if $use_gnulib; then
   if $use_git; then
+    #提定gnulib且采用git,如果有.gitmodules文件,则获取gnulib路径
     gnulib_path=$(git_modules_config submodule.gnulib.path)
+    #如果gnulib_path为空，则指定默认值gnulib
     test -z "$gnulib_path" && gnulib_path=gnulib
   fi
 
@@ -855,6 +875,7 @@ download_po_files() {
   subdir=$1
   domain=$2
   echo "$me: getting translations into $subdir for $domain..."
+  #执行po文件下载命令
   cmd=$(printf "$po_download_command_format" "$subdir" "$domain")
   eval "$cmd"
 }
@@ -897,6 +918,7 @@ update_po_files() {
 case $SKIP_PO in
 '')
   if test -d po; then
+    #更新po文件
     update_po_files po $package || exit
   fi
 
@@ -1012,6 +1034,7 @@ if $use_gnulib; then
   done
 fi
 
+#触发hook
 bootstrap_post_import_hook \
   || die "bootstrap_post_import_hook failed"
 
@@ -1092,6 +1115,7 @@ if test $with_gettext = yes; then
     ;;
   esac
 
+  #生成runtime-po/Makevars文件
   if test -d runtime-po; then
     # Similarly for runtime-po/Makevars, but not quite the same.
     rm -f runtime-po/Makevars

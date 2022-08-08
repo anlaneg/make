@@ -689,12 +689,14 @@ set_default_suffixes (void)
   else
     {
       struct dep *d;
+      /*指向默认后缀*/
       const char *p = default_suffixes;
       suffix_file->deps = enter_prereqs (PARSE_SIMPLE_SEQ ((char **)&p, struct dep),
                                          NULL);
       for (d = suffix_file->deps; d; d = d->next)
         d->file->builtin = 1;
 
+      /*设置SUFFIXES，取值定为默认前缀*/
       define_variable_cname ("SUFFIXES", default_suffixes, o_default, 0);
     }
 }

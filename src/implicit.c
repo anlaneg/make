@@ -211,7 +211,8 @@ pattern_search (struct file *file, int archive/*是否存档*/,
                 int allow_compat_rules)
 {
   /* Filename we are searching for a rule for.  */
-  const char *filename = archive ? strchr (file->name, '(')/*存档情况下取'('后的文件名称*/ : file->name;
+    /*存档情况下取'('后的文件名称*/
+  const char *filename = archive ? strchr (file->name, '(') : file->name;
 
   /* Length of FILENAME.  */
   size_t namelen = strlen (filename);

@@ -34,6 +34,7 @@ MyExecute (char **argv)
     int len = 0;
     int status;
 
+    /*参数长度*/
     for (aptr=argv; *aptr; aptr++)
     {
         len += strlen (*aptr) + 4;
@@ -50,12 +51,14 @@ MyExecute (char **argv)
     {
         if (((*aptr)[0] == ';' && !(*aptr)[1]))
         {
+            /*利用引号，将这些参数引起来*/
             *ptr ++ = '"';
             ptr = stpcpy (ptr, *aptr);
             *(ptr++) = '"';
         }
         else if ((*aptr)[0] == '@' && (*aptr)[1] == '@' && !(*aptr)[2])
         {
+            /*将aptr改为'\n'*/
             *ptr ++ = '\n';
             continue;
         }

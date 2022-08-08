@@ -94,7 +94,8 @@ hash_find_slot (struct hash_table *ht, const void *key)
   /*计算hashcode 1*/
   unsigned int hash_1 = (*ht->ht_hash_1) (key);
 
-  ht->ht_lookups++;/*增加查询次数*/
+  /*增加查询次数*/
+  ht->ht_lookups++;
   for (;;)
     {
       hash_1 &= (ht->ht_size - 1);

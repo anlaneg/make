@@ -363,6 +363,7 @@ undefine_variable_in_set (const char *name, size_t length,
          source than the variable definition.  */
       if ((int) origin >= (int) v->origin)
         {
+          /*变量移除*/
           hash_delete_at (&set->table, var_slot);
           free_variable_name_and_value (v);
           free (v);
@@ -1587,7 +1588,7 @@ parse_variable_definition (const char *str/*变量定义行*/, struct variable *
   const char *p = str;
   const char *end = NULL;
 
-  NEXT_TOKEN (p);
+  NEXT_TOKEN (p);/*跳过p前的空格*/
   var->name = (char *)p;
   var->length = 0;
 
@@ -1599,16 +1600,17 @@ parse_variable_definition (const char *str/*变量定义行*/, struct variable *
 
       /* If we find a comment or EOS, it's not a variable definition.  */
       if (STOP_SET (c, MAP_COMMENT|MAP_NUL))
-          /*非变量定义，返回NULL*/
+          /*首字符即为comment/eos 则非变量定义，返回NULL*/
         return NULL;
 
-      /*第二次遇到空格，报错，变量名称中不能包含空格*/
+      /*第二次遇着空格（第一次在循环外已处理），如果end已设置，则返回NULL*/
       if (ISBLANK (c))
         {
           /* Variable names can't contain spaces so if this is the second set
              of spaces we know it's not a variable assignment.  */
           if (end)
             return NULL;
+          /*遇到空格，记录变量名结束位置*/
           end = p - 1;
           /*跳过p后面的空格*/
           NEXT_TOKEN (p);
@@ -1619,7 +1621,9 @@ parse_variable_definition (const char *str/*变量定义行*/, struct variable *
       if (c == '=')
         {
           if (!end)
+              /*遇着'=',此时end还未设置，则p-1位置为变量名结束位置*/
             end = p - 1;
+          /*采用'='进行赋值，则为递归定义*/
           var->flavor = f_recursive;
           break;
         }
@@ -1627,6 +1631,7 @@ parse_variable_definition (const char *str/*变量定义行*/, struct variable *
       if (c == ':')
         {
           if (!end)
+            /*遇到':',此时end还未设置，则p-1位置为变量名结束位置*/
             end = p - 1;
 
           /* We need to distinguish :=, ::=, and :::=, and : outside of an
@@ -1651,6 +1656,7 @@ parse_variable_definition (const char *str/*变量定义行*/, struct variable *
                   break;
                 }
             }
+          /*遇到错误的语法，返回NULL*/
           return NULL;
         }
 
@@ -1673,6 +1679,7 @@ parse_variable_definition (const char *str/*变量定义行*/, struct variable *
             }
 
           if (!end)
+              /*未设置*/
             end = p - 1;
           ++p;
           break;
