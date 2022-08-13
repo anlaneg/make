@@ -503,6 +503,7 @@ enter_prereqs (struct dep *deps, const char *stem)
   struct dep *d1;
 
   if (deps == 0)
+      /*无内容，返回NULL*/
     return 0;
 
   /* If we have a stem, expand the %'s.  We use patsubst_expand to translate
@@ -560,6 +561,7 @@ enter_prereqs (struct dep *deps, const char *stem)
     }
 
   /* Enter them as files, unless they need a 2nd expansion.  */
+  /*遍历deps中每一个*/
   for (d1 = deps; d1 != 0; d1 = d1->next)
     {
       if (d1->need_2nd_expansion)
@@ -567,6 +569,7 @@ enter_prereqs (struct dep *deps, const char *stem)
 
       d1->file = lookup_file (d1->name);
       if (d1->file == 0)
+          /*没有查询到此file,注册此file*/
         d1->file = enter_file (d1->name);
       d1->staticpattern = 0;
       d1->name = 0;
@@ -929,8 +932,9 @@ set_command_state (struct file *file, enum cmd_state state)
 /* Convert an external file timestamp to internal form.  */
 
 FILE_TIMESTAMP
-file_timestamp_cons (const char *fname, time_t stamp, long int ns)
+file_timestamp_cons (const char *fname/*文件名称*/, time_t stamp, long int ns)
 {
+  /*将stamp,ns转换为FILE_TIMESTAMP时间*/
   int offset = ORDINARY_MTIME_MIN + (FILE_TIMESTAMP_HI_RES ? ns : 0);
   FILE_TIMESTAMP s = stamp;
   FILE_TIMESTAMP product = (FILE_TIMESTAMP) s << FILE_TIMESTAMP_LO_BITS;
@@ -939,6 +943,7 @@ file_timestamp_cons (const char *fname, time_t stamp, long int ns)
   if (! (s <= FILE_TIMESTAMP_S (ORDINARY_MTIME_MAX)
          && product <= ts && ts <= ORDINARY_MTIME_MAX))
     {
+      /*FILE_TIMESTAMP时间超范围，告警*/
       char buf[FILE_TIMESTAMP_PRINT_LEN_BOUND + 1];
       const char *f = fname ? fname : _("Current time");
       ts = s <= OLD_MTIME ? ORDINARY_MTIME_MIN : ORDINARY_MTIME_MAX;
@@ -1005,16 +1010,20 @@ file_timestamp_now (int *resolution)
 void
 file_timestamp_sprintf (char *p, FILE_TIMESTAMP ts)
 {
+    /*格式化ts,输出至p*/
   time_t t = FILE_TIMESTAMP_S (ts);
   struct tm *tm = localtime (&t);
 
   if (tm)
+      /*格式化输出tm,yyyy-mm-dd hh:MM:ss*/
     sprintf (p, "%04d-%02d-%02d %02d:%02d:%02d",
              tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
              tm->tm_hour, tm->tm_min, tm->tm_sec);
   else if (t < 0)
+      /*按有符号输出*/
     sprintf (p, "%ld", (long) t);
   else
+      /*按无符号输出*/
     sprintf (p, "%lu", (unsigned long) t);
   p += strlen (p);
 
@@ -1023,7 +1032,7 @@ file_timestamp_sprintf (char *p, FILE_TIMESTAMP ts)
      local times, whereas this timestamp might come from a remote filesystem.
      So removing trailing zeros is the best guess that we can do.  */
   sprintf (p, ".%09d", FILE_TIMESTAMP_NS (ts));
-  p += strlen (p) - 1;
+  p += strlen (p) - 1;/*跳到结尾，如果结尾为‘0’，则移除此字符。数字1.0将变为1*/
   while (*p == '0')
     p--;
   p += *p != '.';

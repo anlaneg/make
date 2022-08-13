@@ -1121,6 +1121,7 @@ eval (struct ebuffer *ebuf, int set_default)
             break;
           }
 
+        /*展开lb_next*/
         p2 = variable_expand_string (NULL, lb_next, wlen);
 
         while (1)
@@ -2009,6 +2010,7 @@ static void check_specials (const struct nameseq* files, int set_default)
 #if !defined (__MSDOS__) && !defined (__EMX__)
       if (!one_shell && streq (nm, ".ONESHELL"))
         {
+          /*遇到特别的变量，执明ONESHELL*/
           one_shell = 1;
           continue;
         }
@@ -2412,11 +2414,12 @@ find_map_unquote (char *string, int stopmap)
 
   while (1)
     {
+      /*p是stopmap指明元素，则退出循环*/
       while (! STOP_SET (*p, stopmap))
         ++p;
 
       if (*p == '\0')
-          /*到达行尾，退出*/
+        /*到达行尾，退出*/
         break;
 
       /* If we stopped due to a variable reference, skip over its contents.  */
@@ -3297,13 +3300,14 @@ tilde_expand (const char *name)
   */
 
 void *
-parse_file_seq (char **stringp, size_t size, int stopmap,
+parse_file_seq (char **stringp/*字符串*/, size_t size, int stopmap,
                 const char *prefix, int flags)
 {
   /* tmp points to tmpbuf after the prefix, if any.
      tp is the end of the buffer. */
   static char *tmpbuf = NULL;
 
+  /*确定flags上是否没有PARSEFS_NOCACHE标记*/
   int cachep = NONE_SET (flags, PARSEFS_NOCACHE);
 
   struct nameseq *new = 0;
@@ -3326,9 +3330,11 @@ parse_file_seq (char **stringp, size_t size, int stopmap,
   /* Always stop on NUL.  */
   stopmap |= MAP_NUL;
 
+  /*size至少需要容纳struct nameseq*/
   if (size < sizeof (struct nameseq))
     size = sizeof (struct nameseq);
 
+  /*flags上没有noglob标记，设置gl*/
   if (NONE_SET (flags, PARSEFS_NOGLOB))
     dir_setup_glob (&gl);
 
@@ -3338,6 +3344,7 @@ parse_file_seq (char **stringp, size_t size, int stopmap,
     size_t l = strlen (*stringp) + 1;
     if (l > tmpbuf_len)
       {
+        /*申请足够长度，构建tmpbuf*/
         tmpbuf = xrealloc (tmpbuf, l);
         tmpbuf_len = l;
       }
@@ -3361,8 +3368,9 @@ parse_file_seq (char **stringp, size_t size, int stopmap,
       int tot, i;
 
       /* Skip whitespace; at the end of the string or STOPCHAR we're done.  */
-      NEXT_TOKEN (p);
+      NEXT_TOKEN (p);/*跳过p前导空格*/
       if (STOP_SET (*p, stopmap))
+          /**p为当前stopmap,跳出*/
         break;
 
       /* There are names left, so find the end of the next name.
@@ -3390,6 +3398,7 @@ parse_file_seq (char **stringp, size_t size, int stopmap,
 #endif
 
       if (!p)
+          /*p指向s结尾*/
         p = s + strlen (s);
 
       /* Strip leading "this directory" references.  */

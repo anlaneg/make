@@ -1317,6 +1317,7 @@ main (int argc, char **argv, char **envp)
       if (need_vms_symbol () && !vms_use_mcr_command)
         create_foreign_command (program_name, argv[0]);
 #else
+      /*取程序名称*/
       program = strrchr (argv[0], '/');
       if (program == 0)
         program = argv[0];
@@ -2219,7 +2220,7 @@ main (int argc, char **argv, char **envp)
      makefile-specified suffix rules take precedence over built-in pattern
      rules.  */
 
-  convert_to_pattern ();
+  convert_to_pattern ();/*安装后缀规则*/
 
   /* Install the default implicit pattern rules.
      This used to be done before reading the makefiles.
@@ -2742,7 +2743,7 @@ main (int argc, char **argv, char **envp)
   define_makeflags (1, 0);
 
   /* Set always_make_flag if -B was given.  */
-  always_make_flag = always_make_set;
+  always_make_flag = always_make_set;/*设置无条件make标记*/
 
   /* If restarts is set we haven't set up -W files yet, so do that now.  */
   if (restarts && new_files != 0)
@@ -2818,6 +2819,7 @@ main (int argc, char **argv, char **envp)
 
   if (!goals)
     {
+      /*报错，没有指明targets*/
       struct variable *v = lookup_variable (STRING_SIZE_TUPLE ("MAKEFILE_LIST"));
       if (v && v->value && v->value[0] != '\0')
         O (fatal, NILF, _("No targets"));
@@ -2834,6 +2836,7 @@ main (int argc, char **argv, char **envp)
   DB (DB_BASIC, (_("Updating goal targets....\n")));
 
   {
+    /*开始构建target*/
     switch (update_goal_chain (goals))
     {
       case us_none:

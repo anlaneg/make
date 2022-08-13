@@ -229,8 +229,8 @@ snap_implicit_rules (void)
    If SOURCE is nil, it means there should be no deps.  */
 
 static void
-convert_suffix_rule (const char *target, const char *source,
-                     struct commands *cmds)
+convert_suffix_rule (const char *target/*后缀标记*/, const char *source/*依赖的内容*/,
+                     struct commands *cmds/*对应的构造命令*/)
 {
   const char **names, **percents;
   struct dep *deps;
@@ -254,6 +254,7 @@ convert_suffix_rule (const char *target, const char *source,
       /* Construct the target name.  */
       size_t len = strlen (target);
       char *p = alloca (1 + len + 1);
+      /*target以'.‘开头，例如.c,现在变更为%.c*/
       p[0] = '%';
       memcpy (p + 1, target, len + 1);
       *names = strcache_add_len (p, len + 1);
@@ -261,12 +262,14 @@ convert_suffix_rule (const char *target, const char *source,
     }
 
   if (source == 0)
+      /*无依赖*/
     deps = 0;
   else
     {
       /* Construct the dependency name.  */
       size_t len = strlen (source);
       char *p = alloca (1 + len + 1);
+      /*source被指定了，构造依赖内容为%.source*/
       p[0] = '%';
       memcpy (p + 1, source, len + 1);
       deps = alloc_dep ();

@@ -202,7 +202,7 @@ reference_variable (char *o, const char *name/*变量名称*/, size_t length/*�
    NULL.
  */
 char *
-variable_expand_string (char *line, const char *string, size_t length)
+variable_expand_string (char *line/*展开后要输出的buffer*/, const char *string/*待展开的内容*/, size_t length)
 {
   struct variable *v;
   const char *p, *p1;
@@ -447,7 +447,8 @@ variable_expand_string (char *line, const char *string, size_t length)
 char *
 variable_expand (const char *line)
 {
-  return variable_expand_string (NULL, line, SIZE_MAX);
+    /*展开参数line中包含的变量*/
+  return variable_expand_string (NULL/*展开后要输出的buffer*/, line, SIZE_MAX);
 }
 
 /* Expand an argument for an expansion function.
@@ -502,17 +503,25 @@ variable_expand_for_file (const char *line, struct file *file)
      /*file为空，仅需要展开line即可*/
     return variable_expand (line);
 
+  /*全局变量保存(variable set list)*/
   savev = current_variable_set_list;
+
+  /*取此文件对应的variables*/
   current_variable_set_list = file->variables;
 
+  /*全局变量保存（reading file）*/
   savef = reading_file;
   if (file->cmds && file->cmds->fileinfo.filenm)
+      /*使用file给定的fileinfo*/
     reading_file = &file->cmds->fileinfo;
   else
+      /*非cmd情况，置为NULL*/
     reading_file = 0;
 
+  /*全局变量都设置好了，开始展开*/
   result = variable_expand (line);
 
+  /*还原全局变量*/
   current_variable_set_list = savev;
   reading_file = savef;
 
@@ -606,6 +615,7 @@ allocated_variable_expand_for_file (const char *line, struct file *file)
 
   variable_buffer = 0;
 
+  /*利用file给定的变量信息，展开给定的line*/
   value = variable_expand_for_file (line, file);
 
   /*还原原来的全局buffer*/

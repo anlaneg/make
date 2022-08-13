@@ -393,7 +393,9 @@ extern int unixy_shell;
 # define WIN32_LEAN_AND_MEAN
 #endif  /* WINDOWS32 */
 
+/*_v,_m两者与运算后结果不等于0*/
 #define ANY_SET(_v,_m)  (((_v)&(_m)) != 0)
+/*_v,_m两者与运算后结果等于0*/
 #define NONE_SET(_v,_m) (! ANY_SET ((_v),(_m)))
 
 #define MAP_NUL         0x0001

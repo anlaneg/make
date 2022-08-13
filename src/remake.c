@@ -486,10 +486,11 @@ update_file_1 (struct file *file, unsigned int depth)
      might get implicit commands that apply to its initial name, only
      to have that name replaced with another found by VPATH search.  */
 
-  this_mtime = file_mtime (file);
+  this_mtime = file_mtime (file);/*取此文件对应的mtime*/
   check_renamed (file);
   noexist = this_mtime == NONEXISTENT_MTIME;
   if (noexist)
+      /*从mtime上也反映出此文件不存在*/
     DBF (DB_BASIC, _("File '%s' does not exist.\n"));
   else if (ORDINARY_MTIME_MIN <= this_mtime && this_mtime <= ORDINARY_MTIME_MAX
            && file->low_resolution_time)
@@ -503,6 +504,7 @@ update_file_1 (struct file *file, unsigned int depth)
       this_mtime += FILE_TIMESTAMPS_PER_S - 1 - ns;
     }
 
+  /*如果此文件不存在，则必须make*/
   must_make = noexist;
 
   /* If file was specified as a target with no commands,
@@ -510,6 +512,7 @@ update_file_1 (struct file *file, unsigned int depth)
 
   if (!file->phony && file->cmds == 0 && !file->tried_implicit)
     {
+      /*尝试隐含规则*/
       try_implicit_rule (file, depth);
       file->tried_implicit = 1;
     }
@@ -628,6 +631,7 @@ update_file_1 (struct file *file, unsigned int depth)
 
   if (must_make || always_make_flag)
     {
+      /*统过检查或者指明需要make,则在此处进行执行*/
       for (du = file->deps; du != 0; du = du->next)
         {
           d = du->shuf ? du->shuf : du;
@@ -652,6 +656,7 @@ update_file_1 (struct file *file, unsigned int depth)
                  not prune it.  */
               d->file->considered = 0;
 
+              /*尝试更新此依赖*/
               new = update_file (d->file, depth);
               if (new > dep_status)
                 dep_status = new;
@@ -688,6 +693,7 @@ update_file_1 (struct file *file, unsigned int depth)
   finish_updating (file);
   finish_updating (ofile);
 
+  /*目标文件的前置条件均完成*/
   DBF (DB_VERBOSE, _("Finished prerequisites of target file '%s'.\n"));
 
   if (running)
@@ -702,6 +708,7 @@ update_file_1 (struct file *file, unsigned int depth)
 
   if (dep_status)
     {
+      /*依赖更新失败，放弃target file的更新*/
       /* I'm not sure if we can't just assign dep_status...  */
       file->update_status = dep_status == us_none ? us_failed : dep_status;
       notice_finished_file (file);
@@ -853,6 +860,7 @@ update_file_1 (struct file *file, unsigned int depth)
     }
 
   /* Now, take appropriate actions to remake the file.  */
+  /*现在终于可以构建此target了*/
   remake_file (file);
 
   if (file->command_state != cs_finished)
@@ -861,6 +869,7 @@ update_file_1 (struct file *file, unsigned int depth)
       return 0;
     }
 
+  /*依据构建结果，输出信息*/
   switch (file->update_status)
     {
     case us_failed:
@@ -1233,6 +1242,7 @@ remake_file (struct file *file)
 {
   if (file->cmds == 0)
     {
+      /*此文件没有构建命令，针对phony目标，其总是成功*/
       if (file->phony)
         /* Phony target.  Pretend it succeeded.  */
         file->update_status = us_success;
@@ -1250,6 +1260,7 @@ remake_file (struct file *file)
     }
   else
     {
+      /*此target有多条命令，执行这些命令*/
       chop_commands (file->cmds);
 
       /* The normal case: start some commands.  */
@@ -1293,13 +1304,16 @@ f_mtime (struct file *file, int search)
       time_t member_date;
 
       /* Find the archive's name.  */
+      /*当前file->name是一个归档的成员表示，解析出arname,memname*/
       ar_parse_name (file->name, &arname, &memname);
 
       /* Find the modification time of the archive itself.
          Also allow for its name to be changed via VPATH search.  */
       arfile = lookup_file (arname);
       if (arfile == 0)
+          /*arname不存在，增加此arfile*/
         arfile = enter_file (strcache_add (arname));
+      /*取此arfile的mtime*/
       mtime = f_mtime (arfile, search);
       check_renamed (arfile);
       if (search && strcmp (arfile->hname, arname))
@@ -1345,10 +1359,13 @@ f_mtime (struct file *file, int search)
   else
 #endif
     {
+      /*非ar成员类型的文件mtime获取*/
       mtime = name_mtime (file->name);
 
       if (mtime == NONEXISTENT_MTIME && search && !file->ignore_vpath)
         {
+          /*从mtime来看，文件不存在，且参数指明容许search,而且文件不忽略vpath,则尝试
+           * vpath查询，并获取mtime*/
           /* If name_mtime failed, search VPATH.  */
           const char *name = vpath_search (file->name, &mtime, NULL, NULL);
           if (name
@@ -1489,6 +1506,7 @@ f_mtime (struct file *file, int search)
 static FILE_TIMESTAMP
 name_mtime (const char *name)
 {
+    /*取此文件对应的FILE_TIMESTAMP*/
   FILE_TIMESTAMP mtime;
 #if defined(WINDOWS32)
   struct STAT st;
@@ -1538,14 +1556,18 @@ name_mtime (const char *name)
       }
   }
 #else
+  /*取此文件统计信息*/
   EINTRLOOP (e, stat (name, &st));
 #endif
   if (e == 0)
+      /*操作成功，使用文件自身的timestamp*/
     mtime = FILE_TIMESTAMP_STAT_MODTIME (name, st);
   else if (errno == ENOENT || errno == ENOTDIR)
+      /*文件不存在，操作失败，使用标记文件不存在的timestamp*/
     mtime = NONEXISTENT_MTIME;
   else
     {
+      /*遇到其它的错误情况*/
       perror_with_name ("stat: ", name);
       return NONEXISTENT_MTIME;
     }
@@ -1559,6 +1581,7 @@ name_mtime (const char *name)
 #endif
   if (check_symlink_flag && strlen (name) <= GET_PATH_MAX)
     {
+      /*需要检查符号链接，且文件名称合法*/
       PATH_VAR (lpath);
 
       /* Check each symbolic link segment (if any).  Find the latest mtime
@@ -1567,7 +1590,7 @@ name_mtime (const char *name)
          above.  So, if we run into any error trying to lstat(), or
          readlink(), or whatever, something bizarre-o happened.  Just give up
          and use whatever mtime we've already computed at that point.  */
-      strcpy (lpath, name);
+      strcpy (lpath, name);/*复制name到lpath*/
       while (1)
         {
           FILE_TIMESTAMP ltime;
@@ -1575,11 +1598,13 @@ name_mtime (const char *name)
           long llen;
           char *p;
 
+          /*取link统计信息*/
           EINTRLOOP (e, lstat (lpath, &st));
           if (e)
             {
               /* Just take what we have so far.  */
               if (errno != ENOENT && errno != ENOTDIR)
+                  /*尝试出错，退出*/
                 perror_with_name ("lstat: ", lpath);
               break;
             }
@@ -1587,11 +1612,13 @@ name_mtime (const char *name)
           /* If this is not a symlink, we're done (we started with the real
              file's mtime so we don't need to test it again).  */
           if (!S_ISLNK (st.st_mode))
+              /*此文件非link,退出*/
             break;
 
           /* If this mtime is newer than what we had, keep the new one.  */
           ltime = FILE_TIMESTAMP_STAT_MODTIME (lpath, st);
           if (ltime > mtime)
+              /*更新，使用link time*/
             mtime = ltime;
 
           /* Set up to check the file pointed to by this link.  */
@@ -1602,7 +1629,9 @@ name_mtime (const char *name)
               perror_with_name ("readlink: ", lpath);
               break;
             }
-          lbuf[llen] = '\0';
+          lbuf[llen] = '\0';/*读取到link指向的内容*/
+
+          /*link指向的内容可能还是一个link，继续尝试*/
 
           /* If the target is fully-qualified or the source is just a
              filename, then the new path is the target.  Otherwise it's the
@@ -1619,6 +1648,7 @@ name_mtime (const char *name)
     }
 #endif
 
+  /*返回此文件对应的mtime*/
   return mtime;
 }
 

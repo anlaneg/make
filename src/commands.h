@@ -21,10 +21,14 @@ struct commands
   {
     floc fileinfo;              /* Where commands were defined.  */
     char *commands;             /* Commands text.  */
+    /*要执行的命令行*/
     char **command_lines;       /* Commands chopped up into lines.  */
+    /*makefile的每一个命令行前容许添加标记，例如（‘@’，‘+’，‘-’），此成员每命令行一条，用于表示对应的标记情况*/
     unsigned char *lines_flags; /* One set of flag bits for each line.  */
+    /*命令行行数*/
     unsigned short ncommand_lines;/* Number of command lines.  */
     char recipe_prefix;         /* Recipe prefix for this command set.  */
+    /*在当前command_lines集合中是否存在至少一行有recurse标记*/
     unsigned int any_recurse:1; /* Nonzero if any 'lines_flags' elt has */
                                 /* the COMMANDS_RECURSE bit set.  */
   };

@@ -1191,6 +1191,7 @@ start_job_command (struct child *child)
 
   /* If we have a completely empty commandset, stop now.  */
   if (!child->command_ptr)
+      /*命令执行完成，获取下一条*/
     goto next_command;
 
   /* Combine the flags parsed for the line itself with
@@ -1198,9 +1199,11 @@ start_job_command (struct child *child)
   flags = (child->file->command_flags
            | child->file->cmds->lines_flags[child->command_line - 1]);
 
+  /*取本次需要执行的函数*/
   p = child->command_ptr;
   child->noerror = ((flags & COMMANDS_NOERROR) != 0);
 
+  /*分析标记（展开后的形式）*/
   while (*p != '\0')
     {
       if (*p == '@')
@@ -1283,7 +1286,7 @@ start_job_command (struct child *child)
           }
       }
 #else
-    argv = construct_command_argv (p, &end, child->file,
+    argv = construct_command_argv (p/*待执行的line*/, &end/*出参*/, child->file,
                                    child->file->cmds->lines_flags[child->command_line - 1],
                                    &child->sh_batch_file);
 #endif
@@ -1332,9 +1335,11 @@ start_job_command (struct child *child)
 #endif
       /* This line has no commands.  Go to the next.  */
       if (job_next_command (child))
+        /*取到了下一条命令，并执行这一行命令*/
         start_job_command (child);
       else
         {
+          /*所有命令都执行完成了，构建成功*/
           /* No more commands.  Make sure we're "running"; we might not be if
              (e.g.) all commands were skipped due to -n.  */
           set_command_state (child->file, cs_running);
@@ -1430,6 +1435,7 @@ start_job_command (struct child *child)
 #ifndef _AMIGA
   /* Set up the environment for the child.  */
   if (child->environment == 0)
+      /*设置环境变量*/
     child->environment = target_environment (child->file, child->recursive);
 #endif
 
@@ -1480,7 +1486,7 @@ start_job_command (struct child *child)
       jobserver_pre_child (flags & COMMANDS_RECURSE);
 
       child->pid = child_execute_job ((struct childbase *)child,
-                                      child->good_stdin, argv);
+                                      child->good_stdin, argv/*命令参数*/);
 
       environ = parent_environ; /* Restore value child may have clobbered.  */
       jobserver_post_child (flags & COMMANDS_RECURSE);
@@ -1745,11 +1751,13 @@ new_job (struct file *file)
          When we collapse a backslash-newline combination,
          IN gets ahead of OUT.  */
 
+      /*针对单行命令进行变量展开*/
       in = out = cmds->command_lines[i];
       while ((ref = strchr (in, '$')) != 0)
         {
           ++ref;                /* Move past the $.  */
 
+          /*'$'符号之前的内容，先进out*/
           if (out != in)
             /* Copy the text between the end of the last chunk
                we processed (where IN points) and the new chunk
@@ -1762,7 +1770,9 @@ new_job (struct file *file)
 
           if (*ref == '(' || *ref == '{')
             {
+              /*遇到变量标记*/
               char openparen = *ref;
+              /*获得闭区间标记*/
               char closeparen = openparen == '(' ? ')' : '}';
               char *outref;
               int count;
@@ -1823,10 +1833,12 @@ new_job (struct file *file)
       /* There are no more references in this line to worry about.
          Copy the remaining uninteresting text to the output.  */
       if (out != in)
+          /*复制in到out*/
         memmove (out, in, strlen (in) + 1);
 
       /* Finally, expand the line.  */
       cmds->fileinfo.offset = i;
+      /*利用lines[i]记录此命令行的展开形式*/
       lines[i] = allocated_variable_expand_for_file (cmds->command_lines[i],
                                                      file);
     }
@@ -1835,7 +1847,7 @@ new_job (struct file *file)
   c->command_lines = lines;
 
   /* Fetch the first command line to be run.  */
-  job_next_command (c);
+  job_next_command (c);/*取首行待执行的cmd*/
 
   /* Wait for a job slot to be freed up.  If we allow an infinite number
      don't bother; also job_slots will == 0 if we're using the jobserver.  */
@@ -1946,11 +1958,13 @@ new_job (struct file *file)
 static int
 job_next_command (struct child *child)
 {
+    /*取一行待执行的cmd（返回1），如果没有待执行cmd(返回0）*/
   while (child->command_ptr == 0 || *child->command_ptr == '\0')
     {
       /* There are no more lines in the expansion of this line.  */
       if (child->command_line == child->file->cmds->ncommand_lines)
         {
+          /*command_line已达到最大的待执行命令，退出*/
           /* There are no more lines to be expanded.  */
           child->command_ptr = 0;
           child->file->cmds->fileinfo.offset = 0;
@@ -1958,9 +1972,11 @@ job_next_command (struct child *child)
         }
       else
         /* Get the next line to run.  */
+          /*取一行待运行的命令行*/
         child->command_ptr = child->command_lines[child->command_line++];
     }
 
+  /*标记当前执行位置*/
   child->file->cmds->fileinfo.offset = child->command_line - 1;
   return 1;
 }
@@ -2154,6 +2170,7 @@ start_waiting_jobs (void)
   struct child *job;
 
   if (waiting_jobs == 0)
+      /*waiting_jobs为空，直接返回，无需等待*/
     return;
 
   do
@@ -2682,7 +2699,7 @@ void clean_tmp (void)
    (see the FREE_ARGV macro).  */
 
 static char **
-construct_command_argv_internal (char *line, char **restp, const char *shell,
+construct_command_argv_internal (char *line, char **restp, const char *shell/*shell程序名称*/,
                                  const char *shellflags, const char *ifs,
                                  int flags, char **batch_filename UNUSED)
 {
@@ -2843,6 +2860,7 @@ construct_command_argv_internal (char *line, char **restp, const char *shell,
   while (ISBLANK (*line))
     ++line;
   if (*line == '\0')
+      /*遇到空格，退出*/
     return 0;
 
   /*为shellflags提供默认值*/
@@ -2851,7 +2869,7 @@ construct_command_argv_internal (char *line, char **restp, const char *shell,
 
   /* See if it is safe to parse commands internally.  */
   if (shell == 0)
-      /*如无指定，则使用默认shell*/
+    /*如无指定，则使用默认shell*/
     shell = default_shell;
 #ifdef WINDOWS32
   else if (strcmp (shell, default_shell))
@@ -2898,15 +2916,18 @@ construct_command_argv_internal (char *line, char **restp, const char *shell,
     }
 #else  /* !__MSDOS__ */
   else if (strcmp (shell, default_shell))
+      /*与默认shell不同*/
     goto slow;
 #endif /* !__MSDOS__ && !__EMX__ */
 #endif /* not WINDOWS32 */
 
+  /*检查ifs,如果其中包含非' ','\t','\n'，则走slow*/
   if (ifs)
     for (cap = ifs; *cap != '\0'; ++cap)
       if (*cap != ' ' && *cap != '\t' && *cap != '\n')
         goto slow;
 
+  /*检查shellfalgs,如果其中包含非'-c','-e'，则走slow*/
   if (shellflags)
     if (shellflags[0] != '-'
         || ((shellflags[1] != 'c' || shellflags[2] != '\0')
@@ -2916,10 +2937,10 @@ construct_command_argv_internal (char *line, char **restp, const char *shell,
   i = strlen (line) + 1;
 
   /* More than 1 arg per character is impossible.  */
-  new_argv = xmalloc (i * sizeof (char *));
+  new_argv = xmalloc (i * sizeof (char *));/*申请足量的参数指针，如注释言*/
 
   /* All the args can fit in a buffer as big as LINE is.   */
-  ap = new_argv[0] = argstr = xmalloc (i);
+  ap = new_argv[0] = argstr = xmalloc (i);/*申请足量的参数内容内存长度*/
 #ifndef NDEBUG
   end = ap + i;
 #endif
@@ -2927,8 +2948,10 @@ construct_command_argv_internal (char *line, char **restp, const char *shell,
   /* I is how many complete arguments have been found.  */
   i = 0;
   instring = word_has_equals = seen_nonequals = last_argument_was_empty = 0;
+  /*利用p遍历命令行内容*/
   for (p = line; *p != '\0'; ++p)
     {
+      /*ap指向当前待填充的参数内存，end指向可填充的参数指针尾部*/
       assert (ap <= end);
 
       if (instring)
@@ -2985,6 +3008,7 @@ construct_command_argv_internal (char *line, char **restp, const char *shell,
         }
       else if (strchr (sh_chars, *p) != 0)
         /* Not inside a string, but it's a special char.  */
+          /*当前*p字符为shell的特殊字符，走slow*/
         goto slow;
       else if (one_shell && *p == '\n')
         /* In .ONESHELL mode \n is a separator like ; or && */
@@ -3224,9 +3248,9 @@ construct_command_argv_internal (char *line, char **restp, const char *shell,
        argument list.  */
 
     char *new_line;
-    size_t shell_len = strlen (shell);
-    size_t line_len = strlen (line);
-    size_t sflags_len = shellflags ? strlen (shellflags) : 0;
+    size_t shell_len = strlen (shell);/*shell程序名称长度*/
+    size_t line_len = strlen (line);/*命令行字符串长度*/
+    size_t sflags_len = shellflags ? strlen (shellflags) : 0;/*shell flags字符串长度*/
 #ifdef WINDOWS32
     char *command_ptr = NULL; /* used for batch_mode_shell mode */
 #endif
@@ -3410,18 +3434,24 @@ construct_command_argv_internal (char *line, char **restp, const char *shell,
     for (cp = shell; *cp != '\0'; ++cp)
       {
         if (strchr (sh_chars, *cp) != 0)
+          /*shell程序名称中包含特殊的shell字符，执行转义*/
           *(ap++) = '\\';
         *(ap++) = *cp;
       }
+    /*添加参数分隔符*/
     *(ap++) = ' ';
+
+    /*写入shell flags做为一个参数*/
     if (shellflags)
       {
         ap = mempcpy (ap, shellflags, sflags_len);
         *(ap++) = ' ';
       }
+
 #ifdef WINDOWS32
     command_ptr = ap;
 #endif
+    /*利用p遍历line*/
     for (p = line; *p != '\0'; ++p)
       {
         if (restp != NULL && *p == '\n')
@@ -3441,6 +3471,7 @@ construct_command_argv_internal (char *line, char **restp, const char *shell,
 #endif
             if (PRESERVE_BSNL)
               {
+                /*遇到'\\n'，原样输出*/
                 *(ap++) = '\\';
                 /* Only non-batch execution needs another backslash,
                    because it will be passed through a recursive
@@ -3467,8 +3498,11 @@ construct_command_argv_internal (char *line, char **restp, const char *shell,
             p  += 2;
           }
 #endif
+        /*利用*p,填充ap*/
         *ap++ = *p;
       }
+
+    /*达到new_line结尾*/
     if (ap == new_line + shell_len + sflags_len + 2)
       {
         /* Line was empty.  */
@@ -3646,7 +3680,7 @@ construct_command_argv_internal (char *line, char **restp, const char *shell,
    variable expansion for $(SHELL) and $(IFS).  */
 
 char **
-construct_command_argv (char *line, char **restp, struct file *file,
+construct_command_argv (char *line/*要执行的行*/, char **restp, struct file *file,
                         int cmd_flags, char **batch_filename)
 {
   char *shell, *ifs, *shellflags;
@@ -3723,13 +3757,15 @@ construct_command_argv (char *line, char **restp, struct file *file,
     warn_undefined_variables_flag = save;
   }
 
-  argv = construct_command_argv_internal (line, restp, shell, shellflags, ifs,
+  /*构造命令参数*/
+  argv = construct_command_argv_internal (line/*要执行的行*/, restp, shell/*执行用shell*/, shellflags/*shell的标记*/, ifs/*IFS设置*/,
                                           cmd_flags, batch_filename);
 
   free (shell);
   free (shellflags);
   free (ifs);
 
+  /*返回命令参数*/
   return argv;
 }
 

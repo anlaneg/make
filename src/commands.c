@@ -321,6 +321,7 @@ set_file_variables (struct file *file, const char *stem)
 void
 chop_commands (struct commands *cmds)
 {
+    /*收集cmds可执行行*/
   unsigned int nlines;
   unsigned short idx;
   char **lines;
@@ -329,6 +330,7 @@ chop_commands (struct commands *cmds)
      or we already parsed them, never mind.  */
 
   if (!cmds || cmds->command_lines != 0)
+    /*要执行的命令行为空，退出*/
     return;
 
   /* Chop CMDS->commands up into lines in CMDS->command_lines.  */
@@ -349,19 +351,24 @@ chop_commands (struct commands *cmds)
     {
       const char *p;
 
+      /*遍历commands*/
       nlines = 5;
       lines = xmalloc (nlines * sizeof (char *));
       idx = 0;
       p = cmds->commands;
       while (*p != '\0')
         {
+          /*取一行cmd*/
           const char *end = p;
         find_end:;
+          /*确定此行的'\n'位置*/
           end = strchr (end, '\n');
           if (end == 0)
+              /*此行不含'\n',例如文件最后一行，以字符串结尾计*/
             end = p + strlen (p);
           else if (end > p && end[-1] == '\\')
             {
+              /*检查'\n'前是否有'\\'符进行转议，如果有转义，则继续查找end*/
               int backslash = 1;
               const char *b;
               for (b = end - 2; b >= p && *b == '\\'; --b)
@@ -375,15 +382,21 @@ chop_commands (struct commands *cmds)
 
           if (idx == nlines)
             {
+              /*lines vecotr扩容*/
               nlines += 2;
               lines = xrealloc (lines, nlines * sizeof (char *));
             }
+
+          /*记录此行命令*/
           lines[idx++] = xstrndup (p, (size_t) (end - p));
+
+          /*确定下一行开始*/
           p = end;
           if (*p != '\0')
             ++p;
         }
 
+      /*从上面扩展可知，常见情况下nlines一定不等于idx,此时lines有空闲空间，这里realloc刚刚好的空间*/
       if (idx != nlines)
         {
           nlines = idx;
@@ -395,6 +408,7 @@ chop_commands (struct commands *cmds)
      CMDS->any_recurse flag.  */
 
   if (nlines > USHRT_MAX)
+      /*命令的行数过多，报错*/
     ON (fatal, &cmds->fileinfo, _("Recipe has too many lines (%ud)"), nlines);
 
   cmds->ncommand_lines = (unsigned short)nlines;
@@ -403,6 +417,7 @@ chop_commands (struct commands *cmds)
   cmds->any_recurse = 0;
   cmds->lines_flags = xmalloc (nlines);
 
+  /*分析每个命令行标记符*/
   for (idx = 0; idx < nlines; ++idx)
     {
       unsigned char flags = 0;
@@ -425,6 +440,7 @@ chop_commands (struct commands *cmds)
       /* If no explicit '+' was given, look for MAKE variable references.  */
       if (!(flags & COMMANDS_RECURSE)
           && (strstr (p, "$(MAKE)") != 0 || strstr (p, "${MAKE}") != 0))
+          /*没有‘+’标记，且命令行有引用make变量，则添加‘+’标记*/
         flags |= COMMANDS_RECURSE;
 
       cmds->lines_flags[idx] = flags;
@@ -446,7 +462,10 @@ execute_file_commands (struct file *file)
 
   for (p = file->cmds->commands; *p != '\0'; ++p)
     if (!ISSPACE (*p) && *p != '-' && *p != '@' && *p != '+')
+        /*跳过p前面的space,遇到'-','@','+'，非空格符号后跳出*/
       break;
+
+  /*遇到命令行为空的情况，则认为target执行完成*/
   if (*p == '\0')
     {
       /* If there are no commands, assume everything worked.  */
@@ -468,6 +487,7 @@ execute_file_commands (struct file *file)
     unload_file (file->name);
 
   /* Start the commands running.  */
+  /*开始执行commands*/
   new_job (file);
 }
 

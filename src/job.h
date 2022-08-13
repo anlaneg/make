@@ -49,9 +49,11 @@ struct child
     struct file *file;          /* File being remade.  */
 
     char *sh_batch_file;        /* Script file for shell commands */
+    /*已完成变量展开的命令行内容*/
     char **command_lines;       /* Array of variable-expanded cmd lines.  */
     char *command_ptr;          /* Ptr into command_lines[command_line].  */
 
+    /*指向待执行cmd index*/
     unsigned int  command_line; /* Index into command_lines.  */
 
     pid_t pid;                  /* Child process's ID number.  */

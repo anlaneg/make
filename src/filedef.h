@@ -46,7 +46,7 @@ struct file
     struct file *renamed;
 
     /* List of variable sets used for this file.  */
-    struct variable_set_list *variables;
+    struct variable_set_list *variables;/*此文件中所有variable sets*/
 
     /* Pattern-specific variable reference for this target, or null if there
        isn't one.  Also see the pat_searched flag, below.  */
@@ -66,6 +66,7 @@ struct file
     unsigned int considered;    /* equal to 'considered' if file has been
                                    considered on current scan of goal chain */
     int command_flags;          /* Flags OR'd in for cmds; see commands.h.  */
+    /*执行此文件的构建（更新）结果状态*/
     enum update_status          /* Status of the last attempt to update.  */
       {
         us_success = 0,         /* Successfully updated.  Must be 0!  */
@@ -91,6 +92,7 @@ struct file
                                       for implicit rule for making
                                       this file; don't search again.  */
     unsigned int updating:1;    /* Nonzero while updating deps of this file */
+    /*指明此文件是否已更新*/
     unsigned int updated:1;     /* Nonzero if this file has been remade.  */
     unsigned int is_target:1;   /* Nonzero if file is described as target.  */
     unsigned int cmd_target:1;  /* Nonzero if file was given on cmd line.  */

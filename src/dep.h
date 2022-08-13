@@ -18,7 +18,9 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 /* Structure used in chains of names, for parsing and globbing.  */
 
 #define NAMESEQ(_t)     \
+    /*指向下一个元素*/\
     _t *next;           \
+    /*指向名称*/\
     const char *name
 
 struct nameseq

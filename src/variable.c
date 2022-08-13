@@ -581,6 +581,7 @@ initialize_file_variables (struct file *file, int reading)
 
   if (l == 0)
     {
+      /*variable set list不存在，创建一个*/
       l = (struct variable_set_list *)
         xmalloc (sizeof (struct variable_set_list));
       l->set = xmalloc (sizeof (struct variable_set));
@@ -1071,6 +1072,7 @@ target_environment (struct file *file, int recursive)
       struct variable_set *set = s->set;
       int isglobal = set == &global_variable_set;
 
+      /*遍历所有variable*/
       v_slot = (struct variable **) set->table.ht_vec;
       v_end = v_slot + set->table.ht_size;
       for ( ; v_slot < v_end; v_slot++)

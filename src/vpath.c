@@ -542,7 +542,7 @@ selective_vpath_search (struct vpath *path, const char *file,
    and PATH_INDEX if they are not NULL.  Otherwise we return 0.  */
 
 const char *
-vpath_search (const char *file, FILE_TIMESTAMP *mtime_ptr,
+vpath_search (const char *file/*文件名称或路径*/, FILE_TIMESTAMP *mtime_ptr,
               unsigned int* vpath_index, unsigned int* path_index)
 {
   struct vpath *v;
@@ -555,6 +555,7 @@ vpath_search (const char *file, FILE_TIMESTAMP *mtime_ptr,
       || file[0] == '\\' || file[1] == ':'
 #endif
       || (vpaths == 0 && general_vpath == 0))
+      /*文件为绝对地址,直接返回0*/
     return 0;
 
   if (vpath_index)

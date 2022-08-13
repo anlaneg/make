@@ -36,7 +36,7 @@ ar_name (const char *name)
   const char *end;
 
   if (p == 0 || p == name)
-    /*name中不存在'('或者'('在字符串起始位置，返回0*/
+    /*name中不存在'('或者'('在字符串起始位置，返回0，非归档成员*/
     return 0;
 
   /*取最后一个字符*/
