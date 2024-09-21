@@ -475,6 +475,7 @@ static const struct command_switch switches[] =
 
     /* These options take arguments.  */
     { 'C', filename, &directories, 0, 0, 0, 0, 0, "directory" },
+	/*指定makefile文件列表*/
     { 'f', filename, &makefiles, 0, 0, 0, 0, 0, "file" },
     /*指明要include的目录列表，容许有多个*/
     { 'I', filename, &include_dirs, 1, 1, 0, 0, 0,
@@ -1924,6 +1925,7 @@ main (int argc, char **argv, char **envp)
      If none of these are true, we don't need a signal handler at all.  */
   {
 # if defined SIGCHLD
+      /*注册子进程退出信号*/
     bsd_signal (SIGCHLD, child_handler);
 # endif
 # if defined SIGCLD && SIGCLD != SIGCHLD
@@ -2012,7 +2014,7 @@ main (int argc, char **argv, char **envp)
 
     /* Read all the makefiles.  */
     /*读取所有makefiles*/
-    read_files = read_all_makefiles (makefiles == 0 ? 0 : makefiles->list);
+    read_files = read_all_makefiles (makefiles == 0 ? 0/*参数未指定makefile时的情况*/ : makefiles->list);
 
     arg_job_slots = INVALID_JOB_SLOTS;
 
@@ -2122,8 +2124,10 @@ main (int argc, char **argv, char **envp)
   if (jobserver_auth)
     job_slots = 0;
   else if (arg_job_slots == INVALID_JOB_SLOTS)
+      /*默认使用一个job*/
     job_slots = 1;
   else
+    /*用户指定容许多个job并发*/
     job_slots = arg_job_slots;
 
 #if defined (__MSDOS__) || defined (__EMX__) || defined (VMS)

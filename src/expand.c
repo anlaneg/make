@@ -238,6 +238,7 @@ variable_expand_string (char *line/*展开后要输出的buffer*/, const char *s
 
       p1 = strchr (p, '$');/*在p位置查找$起始位置*/
 
+      /*前半部分原样输出*/
       o = variable_buffer_output (o, p, p1 != 0 ? (size_t) (p1 - p) : strlen (p) + 1);
 
       if (p1 == 0)

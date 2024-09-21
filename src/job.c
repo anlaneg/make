@@ -228,11 +228,11 @@ static int start_waiting_job (struct child *);
 
 /* Chain of all live (or recently deceased) children.  */
 
-struct child *children = 0;
+struct child *children = 0;/*所有当前正在运行的job*/
 
 /* Number of children currently running.  */
 
-unsigned int job_slots_used = 0;
+unsigned int job_slots_used = 0;/*当前在运行的job数*/
 
 /* Nonzero if the 'good' standard input is in use.  */
 
@@ -612,6 +612,7 @@ static unsigned int dead_children = 0;
 void
 child_handler (int sig UNUSED)
 {
+  /*收到子进程退出信号，指明退出的子进程数量增加*/
   ++dead_children;
 
   jobserver_signal ();
@@ -673,6 +674,7 @@ reap_children (int block, int err)
              Only print this message once no matter how many jobs are left.  */
           fflush (stdout);
           if (!printed)
+              /*显示在等待其它未完成的job*/
             O (error, NILF, _("*** Waiting for unfinished jobs...."));
           printed = 1;
         }
@@ -695,11 +697,14 @@ reap_children (int block, int err)
          when not necessary.  */
 
       if (dead_children > 0)
+          /*收到了至少一个子进程退出的信号，这里对数量减1*/
         --dead_children;
 
       any_remote = 0;
       any_local = shell_function_pid != 0;
       lastc = 0;
+
+      /*遍历所有子进程,先处理没有成功启动的进程*/
       for (c = children; c != 0; lastc = c, c = c->next)
         {
           any_remote |= c->remote;
@@ -708,6 +713,7 @@ reap_children (int block, int err)
           /* If pid < 0, this child never even started.  Handle it.  */
           if (c->pid < 0)
             {
+              /*创建进程时失败了*/
               exit_sig = 0;
               coredump = 0;
               /* According to POSIX, 127 is used for command not found.  */
@@ -739,6 +745,7 @@ reap_children (int block, int err)
         }
       else
         {
+          /*均为本地的children,通过wait进行获取*/
           /* No remote children.  Check for local children.  */
 #if !defined(__MSDOS__) && !defined(_AMIGA) && !defined(WINDOWS32)
           if (any_local)
@@ -761,6 +768,7 @@ reap_children (int block, int err)
                 pid = WAIT_NOHANG (&status);
               else
 #endif
+                  /*调用wait获知退出的进程pid*/
                 EINTRLOOP (pid, wait (&status));
 #endif /* !VMS */
             }
@@ -769,19 +777,24 @@ reap_children (int block, int err)
 
           if (pid < 0)
             {
+              /*执行pid失败*/
               /* The wait*() failed miserably.  Punt.  */
               pfatal_with_name ("wait");
             }
           else if (pid > 0)
             {
+              /*获知此退出进程的状态*/
               /* We got a child exit; chop the status word up.  */
+              /*退出码是啥*/
               exit_code = WEXITSTATUS (status);
+              /*因为哪种信号退出*/
               exit_sig = WIFSIGNALED (status) ? WTERMSIG (status) : 0;
               coredump = WCOREDUMP (status);
             }
           else
             {
               /* No local children are dead.  */
+              /*本地没有进程退出*/
               reap_more = 0;
 
               if (!block || !any_remote)
@@ -902,12 +915,13 @@ reap_children (int block, int err)
       lastc = 0;
       for (c = children; c != 0; lastc = c, c = c->next)
         if (c->pid == pid && c->remote == remote)
+            /*找到了退出的进程*/
           break;
 
       if (c == 0)
         /* An unknown child died.
            Ignore it; it was inherited from our invoker.  */
-        continue;
+        continue;/*收到了信号，但这个进程我们没有找到，原因如注释言*/
 
       DB (DB_JOBS, (exit_sig == 0 && exit_code == 0
                     ? _("Reaping winning child %p PID %s %s\n")
@@ -1177,7 +1191,7 @@ free_child (struct child *child)
    it can be cleaned up in the event of a fatal signal.  */
 
 static void
-start_job_command (struct child *child)
+start_job_command (struct child *child/*要开始执行的job*/)
 {
   int flags;
   char *p;
@@ -1191,7 +1205,7 @@ start_job_command (struct child *child)
 
   /* If we have a completely empty commandset, stop now.  */
   if (!child->command_ptr)
-      /*命令执行完成，获取下一条*/
+    /*命令执行完成，获取下一条*/
     goto next_command;
 
   /* Combine the flags parsed for the line itself with
@@ -1199,11 +1213,11 @@ start_job_command (struct child *child)
   flags = (child->file->command_flags
            | child->file->cmds->lines_flags[child->command_line - 1]);
 
-  /*取本次需要执行的函数*/
+  /*取本次需要执行的命令*/
   p = child->command_ptr;
   child->noerror = ((flags & COMMANDS_NOERROR) != 0);
 
-  /*分析标记（展开后的形式）*/
+  /*分析命令前缀标记（展开后的形式）*/
   while (*p != '\0')
     {
       if (*p == '@')
@@ -1286,6 +1300,7 @@ start_job_command (struct child *child)
           }
       }
 #else
+    /*构造命令执行参数*/
     argv = construct_command_argv (p/*待执行的line*/, &end/*出参*/, child->file,
                                    child->file->cmds->lines_flags[child->command_line - 1],
                                    &child->sh_batch_file);
@@ -1369,6 +1384,7 @@ start_job_command (struct child *child)
   /* Print the command if appropriate.  */
   if (just_print_flag || ISDB (DB_PRINT)
       || (!(flags & COMMANDS_SILENT) && !run_silent))
+      /*显示要执行的内容*/
     OS (message, 0, "%s", p);
 
   /* Tell update_goal_chain that a command has been started on behalf of
@@ -1481,13 +1497,16 @@ start_job_command (struct child *child)
 
 #else
 
+      /*保存父进程环境变量*/
       parent_environ = environ;
 
       jobserver_pre_child (flags & COMMANDS_RECURSE);
 
+      /*通过fork创建子进程进行执行语句*/
       child->pid = child_execute_job ((struct childbase *)child,
                                       child->good_stdin, argv/*命令参数*/);
 
+      /*还原父进程环境变量*/
       environ = parent_environ; /* Restore value child may have clobbered.  */
       jobserver_post_child (flags & COMMANDS_RECURSE);
 
@@ -1653,17 +1672,20 @@ start_waiting_job (struct child *c)
       /* Put this child on the chain of children waiting for the load average
          to go down.  */
       set_command_state (f, cs_running);
+      /*负载过高，将此child存入waiting_jobs中*/
       c->next = waiting_jobs;
       waiting_jobs = c;
       return 0;
     }
 
   /* Start the first command; reap_children will run later command lines.  */
-  start_job_command (c);
+  start_job_command (c);/*启动此child*/
 
+  /*检查此文件状态*/
   switch (f->command_state)
     {
     case cs_running:
+        /*正在运行，将其加入到children列表*/
       c->next = children;
       if (c->pid > 0)
         {
@@ -1671,7 +1693,7 @@ start_waiting_job (struct child *c)
                         c, c->file->name, pid2str (c->pid),
                         c->remote ? _(" (remote)") : ""));
           /* One more job slot is in use.  */
-          ++job_slots_used;
+          ++job_slots_used;/*当前在运行的job数增加*/
           assert (c->jobslot == 0);
           c->jobslot = 1;
         }
@@ -1685,6 +1707,7 @@ start_waiting_job (struct child *c)
       /* FALLTHROUGH */
 
     case cs_finished:
+        /*已完成*/
       notice_finished_file (f);
       free_child (c);
       break;
@@ -1853,6 +1876,7 @@ new_job (struct file *file)
      don't bother; also job_slots will == 0 if we're using the jobserver.  */
 
   if (job_slots != 0)
+      /*指明了job的并发情况，且当前正在运行的job数与设置的并发度重合，等待其它job退出*/
     while (job_slots_used == job_slots)
       reap_children (1, 0);
 
@@ -1940,6 +1964,7 @@ new_job (struct file *file)
 
   /* The job is now primed.  Start it running.
      (This will notice if there is in fact no recipe.)  */
+  /*启动新的job*/
   start_waiting_job (c);
 
   if (job_slots == 1 || not_parallel)
@@ -2062,6 +2087,7 @@ load_too_high (void)
 #define LOADAVG "/proc/loadavg"
   if (proc_fd == -2)
     {
+      /*打开loadavg文件*/
       EINTRLOOP (proc_fd, open (LOADAVG, O_RDONLY));
       if (proc_fd < 0)
         DB (DB_JOBS, ("Using system load detection method.\n"));
@@ -2083,6 +2109,7 @@ load_too_high (void)
 #define PROC_LOADAVG_SIZE 64
           char avg[PROC_LOADAVG_SIZE+1];
 
+          /*读取负载平均值*/
           EINTRLOOP (r, read (proc_fd, avg, PROC_LOADAVG_SIZE));
           if (r >= 0)
             {
@@ -2094,14 +2121,15 @@ load_too_high (void)
                  running than the requested average.  */
 
               avg[r] = '\0';
-              p = strchr (avg, ' ');
+              p = strchr (avg, ' ');/*1minutes*/
               if (p)
-                p = strchr (p+1, ' ');
+                p = strchr (p+1, ' ');/*5minutes*/
               if (p)
-                p = strchr (p+1, ' ');
+                p = strchr (p+1, ' ');/*15minutes*/
 
               if (p && ISDIGIT(p[1]))
                 {
+                  /*取running*/
                   unsigned int cnt = make_toui (p+1, NULL);
                   DB (DB_JOBS, ("Running: system = %u / make = %u (max requested = %f)\n",
                                 cnt, job_slots_used, max_load_average));
@@ -2179,13 +2207,13 @@ start_waiting_jobs (void)
       reap_children (0, 0);
 
       /* Take a job off the waiting list.  */
-      job = waiting_jobs;
+      job = waiting_jobs;/*等待排首位的job*/
       waiting_jobs = job->next;
 
       /* Try to start that job.  We break out of the loop as soon
          as start_waiting_job puts one back on the waiting list.  */
     }
-  while (start_waiting_job (job) && waiting_jobs != 0);
+  while (start_waiting_job (job)/*等待此job完成*/ && waiting_jobs != 0);
 
   return;
 }
@@ -2296,9 +2324,9 @@ child_execute_job (struct childbase *child, int good_stdin, char **argv)
    Create a child process executing the command in ARGV.
    Returns the PID or -1.  */
 pid_t
-child_execute_job (struct childbase *child, int good_stdin, char **argv)
+child_execute_job (struct childbase *child, int good_stdin, char **argv/*命令行参数*/)
 {
-  const int fdin = good_stdin ? FD_STDIN : get_bad_stdin ();
+  const int fdin = good_stdin ? FD_STDIN/*标准输入*/ : get_bad_stdin ();
   int fdout = FD_STDOUT;
   int fderr = FD_STDERR;
   pid_t pid;
@@ -2321,8 +2349,10 @@ child_execute_job (struct childbase *child, int good_stdin, char **argv)
 
 #if !defined(USE_POSIX_SPAWN)
 
+  /*创建子进程*/
   pid = vfork();
   if (pid != 0)
+      /*父进程退出*/
     return pid;
 
   /* We are the child.  */
@@ -2336,6 +2366,7 @@ child_execute_job (struct childbase *child, int good_stdin, char **argv)
 
   /* For any redirected FD, dup2() it to the standard FD.
      They are all marked close-on-exec already.  */
+  /*准备stdin,stdout,stderr*/
   if (fdin >= 0 && fdin != FD_STDIN)
     EINTRLOOP (r, dup2 (fdin, FD_STDIN));
   if (fdout != FD_STDOUT)
@@ -2344,8 +2375,9 @@ child_execute_job (struct childbase *child, int good_stdin, char **argv)
     EINTRLOOP (r, dup2 (fderr, FD_STDERR));
 
   /* Run the command.  */
+  /*运行子进程*/
   exec_command (argv, child->environment);
-  _exit (127);
+  _exit (127);/*执行子进程失败后退出*/
 
 #else /* USE_POSIX_SPAWN */
 

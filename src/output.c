@@ -99,6 +99,7 @@ log_working_directory (int entering)
         fmt = _("%s: Leaving an unknown directory\n");
     else
       if (entering)
+    	  /*指明进入指定目录*/
         fmt = _("%s: Entering directory '%s'\n");
       else
         fmt = _("%s: Leaving directory '%s'\n");
@@ -110,6 +111,7 @@ log_working_directory (int entering)
         fmt = _("%s[%u]: Leaving an unknown directory\n");
     else
       if (entering)
+    	  /*指明子程进入目录*/
         fmt = _("%s[%u]: Entering directory '%s'\n");
       else
         fmt = _("%s[%u]: Leaving directory '%s'\n");

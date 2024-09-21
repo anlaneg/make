@@ -453,7 +453,7 @@ chop_commands (struct commands *cmds)
    fork off a child process to run the first command line in the sequence.  */
 
 void
-execute_file_commands (struct file *file)
+execute_file_commands (struct file *file/*要构建的目标*/)
 {
   const char *p;
 
@@ -487,7 +487,7 @@ execute_file_commands (struct file *file)
     unload_file (file->name);
 
   /* Start the commands running.  */
-  /*开始执行commands*/
+  /*开始执行此file对应的commands*/
   new_job (file);
 }
 

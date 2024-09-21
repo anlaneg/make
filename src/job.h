@@ -56,6 +56,7 @@ struct child
     /*指向待执行cmd index*/
     unsigned int  command_line; /* Index into command_lines.  */
 
+    /*子进程id*/
     pid_t pid;                  /* Child process's ID number.  */
 
     unsigned int  remote:1;     /* Nonzero if executing remotely.  */

@@ -433,6 +433,7 @@ update_file_1 (struct file *file, unsigned int depth)
 
   if (file->updated)
     {
+      /*此文件已更新（有两种情况，成功更新/更新失败了）*/
       if (file->update_status > us_none)
         {
           DBF (DB_VERBOSE,
@@ -586,6 +587,7 @@ update_file_1 (struct file *file, unsigned int depth)
               d->file->dontcare = file->dontcare;
             }
 
+          /*检查依赖*/
           new = check_dep (d->file, depth, this_mtime, &maybe_make);
           if (new > dep_status)
             dep_status = new;
@@ -1039,7 +1041,7 @@ check_dep (struct file *file, unsigned int depth,
   struct dep *d;
   enum update_status dep_status = us_success;
 
-  ++depth;
+  ++depth;/*增加层数*/
   start_updating (file);
 
   /* We might change file if we find a different one via vpath;
